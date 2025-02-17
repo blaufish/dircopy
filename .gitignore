@@ -1,2 +1,4 @@
 .*.sw?
 hello_world/target/
+gentestfile/target/
+gentestfile/testfile.bin

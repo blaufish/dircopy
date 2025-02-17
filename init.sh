@@ -22,3 +22,8 @@ if [[ ! -d hello_world ]]
 then
 	cargo init hello_world
 fi
+
+if [[ ! -d gentestfile ]]
+then
+	cargo init gentestfile
+fi
