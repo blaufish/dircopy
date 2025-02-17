@@ -27,7 +27,7 @@ fn fill(mut file: File, seed: &[u8], length: usize) -> std::io::Result<()> {
         }
         else {
             //last block uneven
-            let short = &s[0..len-1];
+            let short = &s[0..len];
             let fw = file.write_all(short);
             return fw;
         }
