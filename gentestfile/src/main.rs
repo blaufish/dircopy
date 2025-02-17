@@ -7,15 +7,20 @@ use sha2::{Sha256, Digest};
 
 fn fill(mut file: File, seed: &[u8], length: usize) -> std::io::Result<()> {
     let mut len = length;
+    let mut first = true;
 
-    let mut h0 = Sha256::new();
-    h0.update(seed);
-    let mut s = h0.finalize();
+    let mut h1 = Sha256::new();
+    h1.update(seed);
+    let mut s = h1.finalize_reset();
 
     while len > 0 {
-        let mut h1 = Sha256::new();
-        h1.update(&s);
-        s = h1.finalize();
+        if first {
+            first = false;
+        }
+        else {
+            h1.update(&s);
+            s = h1.finalize_reset();
+        }
 
         let slen = s.len();
         if len >= slen {
