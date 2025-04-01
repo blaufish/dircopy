@@ -20,15 +20,12 @@ fn fill_array(seed: &[u8], length: usize) -> Box<[u8]> {
         }
         let slen = s.len();
         if len >= slen {
-            for b in &s[0..slen] {
-                vec.push( *b );
-            }
+            vec.extend_from_slice(&s);
             len = len - slen;
         }
         else {
-            for b in &s[0..len] {
-                vec.push( *b );
-            }
+            let short = &s[0..len];
+            vec.extend_from_slice(short);
         }
     }
     return vec.into_boxed_slice()
