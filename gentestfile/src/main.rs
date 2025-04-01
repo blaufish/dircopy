@@ -3,14 +3,13 @@ use std::io::Write;
 use clap::Parser;
 use sha2::{Sha256, Digest};
 
-fn fill(mut file: File, seed: &[u8], length: usize) -> std::io::Result<()> {
+fn fill_array(seed: &[u8], length: usize) -> Box<[u8]> {
+    let mut vec : Vec<u8> = Vec::with_capacity(length);
     let mut len = length;
     let mut first = true;
-
     let mut h1 = Sha256::new();
     h1.update(seed);
     let mut s = h1.finalize_reset();
-
     while len > 0 {
         if first {
             first = false;
@@ -19,23 +18,25 @@ fn fill(mut file: File, seed: &[u8], length: usize) -> std::io::Result<()> {
             h1.update(&s);
             s = h1.finalize_reset();
         }
-
         let slen = s.len();
         if len >= slen {
-            let fw = file.write_all(&s);
-            if fw.is_err() {
-                return fw;
+            for b in &s[0..slen] {
+                vec.push( *b );
             }
             len = len - slen;
         }
         else {
-            //last block uneven
-            let short = &s[0..len];
-            let fw = file.write_all(short);
-            return fw;
+            for b in &s[0..len] {
+                vec.push( *b );
+            }
         }
     }
-    Ok(())
+    return vec.into_boxed_slice()
+}
+
+fn fill(mut file: File, seed: &[u8], length: usize) -> std::io::Result<()> {
+    let array = fill_array(seed, length);
+    return file.write_all(&array);
 }
 
 #[derive(Parser, Debug)]
