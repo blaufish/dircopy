@@ -1,9 +1,7 @@
 use std::fs::File;
-//use std::io::prelude::*;
 use std::io::Write;
-use std::path::Path;
+use clap::Parser;
 use sha2::{Sha256, Digest};
-
 
 fn fill(mut file: File, seed: &[u8], length: usize) -> std::io::Result<()> {
     let mut len = length;
@@ -40,8 +38,24 @@ fn fill(mut file: File, seed: &[u8], length: usize) -> std::io::Result<()> {
     Ok(())
 }
 
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    #[arg(short, long)]
+    output: std::path::PathBuf,
+
+    #[arg(short, long)]
+    seed: String,
+
+    #[arg(short, long)]
+    length: usize,
+}
+
 fn main() {
-    let path = Path::new("testfile.bin");
+    let args = Args::parse();
+    let seed = args.seed.as_bytes();
+    let path = args.output;
+    let length = args.length;
     let display = path.display();
 
     // Open a file in write-only mode, returns `io::Result<File>`
@@ -50,8 +64,7 @@ fn main() {
         Ok(file) => file,
     };
 
-    let seed = b"hello world";
-    let _ = match fill(file, seed, 127) {
+    let _ = match fill(file, seed, length) {
         Err(why) => panic!("Error writing {}: {}", display, why),
         Ok(_) => ()
     };
