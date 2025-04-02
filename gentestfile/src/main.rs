@@ -59,4 +59,6 @@ fn main() {
         Err(why) => panic!("Error writing {}: {}", display, why),
         Ok(_) => ()
     };
+
+    debug_assert!(false, "Debug build. This will cause extremely slow performance!");
 }
