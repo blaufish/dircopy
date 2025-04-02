@@ -6,27 +6,20 @@ use sha2::{Sha256, Digest};
 fn fill_array(seed: &[u8], length: usize) -> Box<[u8]> {
     let mut vec : Vec<u8> = Vec::with_capacity(length);
     let mut len = length;
-    let mut first = true;
     let mut h1 = Sha256::new();
     h1.update(seed);
     let mut s = h1.finalize_reset();
     while len > 0 {
-        if first {
-            first = false;
-        }
-        else {
-            h1.update(&s);
-            s = h1.finalize_reset();
-        }
         let slen = s.len();
-        if len >= slen {
-            vec.extend_from_slice(&s);
-            len = len - slen;
-        }
-        else {
+        if len <= slen {
             let short = &s[0..len];
             vec.extend_from_slice(short);
+            break;
         }
+        vec.extend_from_slice(&s);
+        len = len - slen;
+        h1.update(&s);
+        s = h1.finalize_reset();
     }
     return vec.into_boxed_slice()
 }
