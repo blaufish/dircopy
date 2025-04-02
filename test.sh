@@ -2,42 +2,59 @@
 
 gen() {
 	local file="$1"
-	local seed="$2"
-	local length="$3"
-	echo "Generating $file, $length bytes, seed $seed"
-	if [[ "$TIME" == "" ]]
+	local mode="$2"
+	local seed="$3"
+	local length="$4"
+	local bin="./gentestfile/target/release/gentestfile"
+
+	if [[ "$DEBUG" == "Y" ]]
 	then
-		./gentestfile/target/release/gentestfile \
-		--output "$file" \
-		--seed "$seed" \
-		--length "$length"
-	else
+		bin="./gentestfile/target/debug/gentestfile"
+	fi
+
+	echo "Generating $file, $length bytes, mode: $mode, seed $seed"
+	if [[ "$TIME" == "Y" ]]
+	then
 		time \
-		./gentestfile/target/release/gentestfile \
+		RUST_BACKTRACE=1 \
+		"$bin" \
 		--output "$file" \
 		--seed "$seed" \
-		--length "$length"
+		--length "$length" \
+		--mode "$mode"
+	else
+		RUST_BACKTRACE=1 \
+		"$bin" \
+		--output "$file" \
+		--seed "$seed" \
+		--length "$length" \
+		--mode "$mode"
 	fi
 }
 
-
 set -e
-cd gentestfile && cargo build --release && cd ..
+#set -x
+if [[ "$DEBUG" == "Y" ]]
+then
+	cd gentestfile && cargo build && cd ..
+else
+	cd gentestfile && cargo build --release && cd ..
+fi
 
-mkdir -p -- out/gen
-gen "out/gen/test.8.bin" "test" 1
-gen "out/gen/test.248.bin" "test" 31
-gen "out/gen/test.256.bin" "test" 32
-gen "out/gen/test.264.bin" "test" 33
-gen "out/gen/test.504.bin" "test" 63
-gen "out/gen/test.512.bin" "test" 64
-gen "out/gen/test.520.bin" "test" 65
-gen "out/gen/hello.256.bin" "hello" 32
-gen "out/gen/world.256.bin" "world" 32
-gen "out/gen/world.512.bin" "world" 64
-gen "out/gen/world.M1.bin" "world" 134217728 # 1 Mi Bit
-gen "out/gen/world.M8.bin" "world" 1073741824 # 8 Mi Bit, 1 Mi Byte
+mkdir -p -- out/gen/sha
+mkdir -p -- out/gen/aes
 
-sha256sum -c "test.gen.sha256.txt"
+for size in {0..127}
+do
+	gen "out/gen/sha/test.$size.bin" "sha256" "test" "$size"
+	gen "out/gen/aes/test.$size.bin" "aes-ctr" "test" "$size"
+	gen "out/gen/sha/word.$size.bin" "sha256" "word" "$size"
+	gen "out/gen/aes/word.$size.bin" "aes-ctr" "word" "$size"
+done
+
+gen "out/gen/sha/foo.1G.bin" "sha256" "foo" 1073741824
+gen "out/gen/aes/foo.1G.bin" "aes-ctr" "foo" 1073741824
+
+#sha256sum -c "test.gen.sha256.txt"
 
 #gen "out/gen/world.G1.bin" "world" 137438953472 # 1 Gi Bit
