@@ -3,15 +3,13 @@ use std::io::Write;
 use clap::Parser;
 use sha2::{Sha256, Digest};
 
-fn fill_array(seed: &[u8], length: usize) -> Box<[u8]> {
+fn fill_array(h1: &mut Sha256, length: usize) -> Box<[u8]> {
     let mut vec : Vec<u8> = Vec::with_capacity(length);
     let mut len = length;
-    let mut h1 = Sha256::new();
-    h1.update(seed);
-    let mut s = h1.finalize_reset();
     while len > 0 {
+        let s = h1.finalize_reset();
         let slen = s.len();
-        if len <= slen {
+        if len < slen {
             let short = &s[0..len];
             vec.extend_from_slice(short);
             break;
@@ -19,14 +17,35 @@ fn fill_array(seed: &[u8], length: usize) -> Box<[u8]> {
         vec.extend_from_slice(&s);
         len = len - slen;
         h1.update(&s);
-        s = h1.finalize_reset();
     }
     return vec.into_boxed_slice()
 }
 
 fn fill(mut file: File, seed: &[u8], length: usize) -> std::io::Result<()> {
-    let array = fill_array(seed, length);
-    return file.write_all(&array);
+    let mut h1 = Sha256::new();
+    h1.update(seed);
+
+    let mut len = length;
+    let blocksize : usize = 32 * 1024;
+
+    while len > 0 {
+        if len <= blocksize {
+            let array = fill_array(&mut h1, len);
+            let fw = file.write_all(&array);
+            return fw;
+        }
+        len = len - blocksize;
+        let array = fill_array(&mut h1, blocksize);
+        let fw = file.write_all(&array);
+        let err = match fw {
+            Err(_) => true,
+            Ok(_) => false,
+        };
+        if err {
+            return fw;
+        }
+    }
+    Ok(())
 }
 
 #[derive(Parser, Debug)]

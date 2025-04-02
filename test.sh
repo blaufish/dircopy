@@ -4,9 +4,9 @@ gen() {
 	local file="$1"
 	local seed="$2"
 	local length="$3"
+	echo "Generating $file, $length bytes, seed $seed"
 	if [[ "$TIME" == "" ]]
 	then
-		echo "Generating $file, $length bytes, seed $seed"
 		./gentestfile/target/release/gentestfile \
 		--output "$file" \
 		--seed "$seed" \
@@ -40,4 +40,4 @@ gen "out/gen/world.M8.bin" "world" 1073741824 # 8 Mi Bit, 1 Mi Byte
 
 sha256sum -c "test.gen.sha256.txt"
 
-gen "out/gen/world.G1.bin" "world" 137438953472 # 1 Gi Bit
+#gen "out/gen/world.G1.bin" "world" 137438953472 # 1 Gi Bit
