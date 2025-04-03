@@ -132,6 +132,7 @@ fn copy_sha256(input: std::path::PathBuf, output: std::path::PathBuf) {
             break;
         }
     }
+    print!("SHA: {}", format!("{:X}", h1.finalize()))
 }
 
 fn main() -> std::io::Result<()> {
