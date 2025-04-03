@@ -1,4 +1,5 @@
 .*.sw?
-hello_world/target/
+filecopy/target/
 gentestfile/target/
-gentestfile/testfile.bin
+hello_world/target/
+out/

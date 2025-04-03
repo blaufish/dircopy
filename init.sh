@@ -27,3 +27,8 @@ if [[ ! -d gentestfile ]]
 then
 	cargo init gentestfile
 fi
+
+if [[ ! -d filecopy ]]
+then
+	cargo init filecopy
+fi
