@@ -31,5 +31,22 @@ fi
 
 mkdir -p -- out/copy
 
-copy "out/gen/sha/foo.1G.bin" "out/foo.1G.bin.basic" basic
-copy "out/gen/sha/foo.1G.bin" "out/foo.1G.bin.system" system
+if rm -- \
+	out/copy/foo.1G.bin.basic \
+	out/copy/foo.1G.bin.own \
+	out/copy/foo.1G.bin.system
+then
+	echo "Cleaned files"
+else
+	echo "Ignoring errors..."
+fi
+
+copy "out/gen/sha/foo.1G.bin" "out/copy/foo.1G.bin.basic" basic
+copy "out/gen/sha/foo.1G.bin" "out/copy/foo.1G.bin.own" own
+copy "out/gen/sha/foo.1G.bin" "out/copy/foo.1G.bin.system" system
+
+sha256sum \
+	out/gen/sha/foo.1G.bin \
+	out/copy/foo.1G.bin.basic \
+	out/copy/foo.1G.bin.own \
+	out/copy/foo.1G.bin.system
