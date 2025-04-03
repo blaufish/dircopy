@@ -34,6 +34,7 @@ mkdir -p -- out/copy
 if rm -- \
 	out/copy/foo.1G.bin.basic \
 	out/copy/foo.1G.bin.own \
+	out/copy/foo.1G.bin.sha256 \
 	out/copy/foo.1G.bin.system
 then
 	echo "Cleaned files"
@@ -43,10 +44,12 @@ fi
 
 copy "out/gen/sha/foo.1G.bin" "out/copy/foo.1G.bin.basic" basic
 copy "out/gen/sha/foo.1G.bin" "out/copy/foo.1G.bin.own" own
+copy "out/gen/sha/foo.1G.bin" "out/copy/foo.1G.bin.sha256" sha256
 copy "out/gen/sha/foo.1G.bin" "out/copy/foo.1G.bin.system" system
 
 sha256sum \
 	out/gen/sha/foo.1G.bin \
 	out/copy/foo.1G.bin.basic \
 	out/copy/foo.1G.bin.own \
+	out/copy/foo.1G.bin.sha256 \
 	out/copy/foo.1G.bin.system
