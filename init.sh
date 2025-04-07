@@ -10,6 +10,15 @@ depends_on() {
 	fi
 }
 
+rust_init() {
+	local dir="$1"
+	if [[ -d "$dir" ]]
+	then
+		return
+	fi
+	cargo init "$dir"
+}
+
 if [[ ! -d .git ]]
 then
 	git init .
@@ -18,17 +27,6 @@ fi
 depends_on rustc 
 depends_on cargo
 
-if [[ ! -d hello_world ]]
-then
-	cargo init hello_world
-fi
-
-if [[ ! -d gentestfile ]]
-then
-	cargo init gentestfile
-fi
-
-if [[ ! -d filecopy ]]
-then
-	cargo init filecopy
-fi
+rust_init hello_world
+rust_init gentestfile
+rust_init filecopy
