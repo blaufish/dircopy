@@ -30,3 +30,4 @@ depends_on cargo
 rust_init hello_world
 rust_init gentestfile
 rust_init filecopy
+rust_init dircopy
