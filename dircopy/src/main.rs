@@ -1,13 +1,13 @@
 use std::fs;
-//use std::fs::File;
-//use std::io::Read;
-//use std::io::Write;
-//use std::sync::mpsc::sync_channel;
-//use std::thread;
+use std::fs::File;
+use std::io::Read;
+use std::io::Write;
+use std::sync::mpsc::sync_channel;
+use std::thread;
 use std::io;
 
 use clap::Parser;
-//use sha2::{Sha256, Digest};
+use sha2::{Sha256, Digest};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -25,10 +25,23 @@ struct Args {
     qs: usize,
 
 }
-/*
-fn copy_sha256threaded(input: std::path::PathBuf, output: std::path::PathBuf) {
-    const QUEUE_SIZE : usize = 10;
+
+#[derive(Clone,Copy)]
+struct Configuration {
+    queue_size : usize,
+    block_size : usize,
+}
+
+enum Message {
+    Block(Vec<u8>),
+    Done,
+}
+
+fn copy(cfg: Configuration, input: std::path::PathBuf, output: std::path::PathBuf) {
     const BLOCK_SIZE : usize = 1024 * 1024;
+    const QUEUE_SIZE : usize = 10;
+    //cfg.queue_size;
+
     let fi_ = File::open(input);
 
     if let Err(e) = fi_ {
@@ -51,8 +64,8 @@ fn copy_sha256threaded(input: std::path::PathBuf, output: std::path::PathBuf) {
         Err( _ ) => panic!(),
     };
 
-    let (read_tx, sha_rx) = sync_channel(QUEUE_SIZE);
-    let (sha_tx, file_write_rx) = sync_channel(QUEUE_SIZE);
+    let (read_tx, sha_rx) = sync_channel::<Message>(QUEUE_SIZE);
+    let (sha_tx, file_write_rx) = sync_channel::<Message>(QUEUE_SIZE);
 
     let read_thread = thread::spawn(move || {
         loop {
@@ -94,10 +107,10 @@ fn copy_sha256threaded(input: std::path::PathBuf, output: std::path::PathBuf) {
                         eprintln!("Error: {}", e);
                     }
                     let digest = h1.clone().finalize();
-                    print!("SHA: {}", format!("{:X}", digest));
+                    println!("SHA: {}", format!("{:X}", digest));
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
+                    eprintln!("Error T-SHA: {}", e);
                     break;
                 }
             }
@@ -109,7 +122,7 @@ fn copy_sha256threaded(input: std::path::PathBuf, output: std::path::PathBuf) {
             match file_write_rx.recv() {
                 Ok(Message::Block(block)) => {
                     if let Err(e) = fo.write_all(&block) {
-                        eprintln!("Error: {}", e);
+                        eprintln!("Error T-FW: {}", e);
                         break;
                     }
                 }
@@ -117,7 +130,7 @@ fn copy_sha256threaded(input: std::path::PathBuf, output: std::path::PathBuf) {
                     break;
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
+                    eprintln!("Error T-FW: {}", e);
                     break;
                 }
             }
@@ -135,18 +148,28 @@ fn copy_sha256threaded(input: std::path::PathBuf, output: std::path::PathBuf) {
         panic!("Failure to join file write thread");
     }
 }
-*/
 
 
-fn copy_dir(input: std::path::PathBuf, _output: std::path::PathBuf) -> io::Result<()> {
+fn copy_dir(cfg: Configuration, input: std::path::PathBuf, output: std::path::PathBuf) -> io::Result<()> {
     for entry in fs::read_dir(input)? {
         let entry = entry?;
         let path = entry.path();
+        let mut output_path = output.clone();
+        match path.file_name() {
+            Some(s) => output_path.push(s),
+            None => continue, //TODO error handling
+        }
         if path.is_dir() {
-            println!("path: {}", path.display());
-            if let Err(e) = copy_dir(path, _output.clone()) {
-              return Err(e);
+            println!("dir: {} --> {}", path.display(), output_path.display());
+            if !output_path.exists() {
+                fs::create_dir(output_path.clone())?;
             }
+            copy_dir(cfg, path, output_path)?;
+        }
+        else if path.is_file() {
+            println!("file: {}", path.display());
+            println!("file out: {}", output_path.clone().display());
+            copy(cfg, path, output_path);
         }
     }
     Ok(())
@@ -189,17 +212,22 @@ fn main() -> std::io::Result<()> {
     }
     eprintln!("blocksize: {}", blocksize);
 
+    let cfg = Configuration {
+        queue_size: args.qs,
+        block_size: blocksize,
+    };
+
     if ! args.input.is_dir() {
         eprintln!("Directory {} is not a directory", args.input.display());
         return Ok(())
     }
 
-    //if ! args.output.is_dir() {
-    //    eprintln!("Directory {} is not a directory", args.output.display());
-    //    return Ok(())
-    //}
+    if ! args.output.is_dir() {
+        eprintln!("Directory {} is not a directory", args.output.display());
+        return Ok(())
+    }
 
-    if let Err(e) = copy_dir(args.input, args.output) {
+    if let Err(e) = copy_dir(cfg, args.input, args.output) {
         eprintln!("copy_dir failed: {}", e);
         return Err(e);
     }
