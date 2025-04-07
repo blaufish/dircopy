@@ -143,23 +143,11 @@ fn copy_sha256(input: std::path::PathBuf, output: std::path::PathBuf) {
     print!("SHA: {}", format!("{:X}", h1.finalize()))
 }
 
-#[derive(PartialEq)]
-enum Op {
-    OpInit,
-    OpBlock,
-    OpFinalize,
-    OpExit,
+
+enum Message {
+    Block(Vec<u8>),
+    Done,
 }
-/*
-struct Msg {
-    op: Op,
-}
-impl Msg {
-    fn new( op: Op ) -> Msg {
-        Msg { op: op }
-    }
-}
-*/
 
 fn copy_sha256threaded(input: std::path::PathBuf, output: std::path::PathBuf) {
     const QUEUE_SIZE : usize = 10;
@@ -186,90 +174,82 @@ fn copy_sha256threaded(input: std::path::PathBuf, output: std::path::PathBuf) {
         Err( _ ) => panic!(),
     };
 
-    let (sha_send, sha_rec) = sync_channel(QUEUE_SIZE);
-    let (sha_send_data, sha_rec_data) = sync_channel(QUEUE_SIZE);
-    let (write_send, write_rec) = sync_channel(QUEUE_SIZE);
-    let (write_send_data, write_rec_data) = sync_channel(QUEUE_SIZE);
+    let (read_tx, sha_rx) = sync_channel(QUEUE_SIZE);
+    let (sha_tx, file_write_rx) = sync_channel(QUEUE_SIZE);
 
-    let mut buffer = [0u8; BLOCK_SIZE];
+    let read_thread = thread::spawn(move || {
+        loop {
+            let mut buffer = [0u8; BLOCK_SIZE];
+            match fi.read(&mut buffer) {
+                Ok(0) => {
+                    if let Err(e) = read_tx.send(Message::Done) {
+                        eprintln!("Error: {}", e);
+                    }
+                    break;
+                }
+                Ok(n) => {
+                    let block = buffer[0..n].to_vec();
+                    if let Err(e) = read_tx.send(Message::Block(block)) {
+                        eprintln!("Error: {}", e);
+                        break;
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    break;
+                }
+            }
+        }
+    });
+
     let sha_thread = thread::spawn( move || {
         let mut h1 = Sha256::new();
         loop {
-            let op: Op = sha_rec.recv().unwrap();
-            if op == Op::OpInit {
-                //print!("init");
-                h1.reset();
-                continue;
-            }
-            if op == Op::OpBlock {
-                //print!("block");
-                let data : Vec<u8> = sha_rec_data.recv().unwrap();
-                h1.update(data.as_slice());
-                continue;
-            }
-            if op == Op::OpFinalize {
-                //print!("fin");
-                let digest = h1.clone().finalize();
-                print!("SHA: {}", format!("{:X}", digest));
-                continue;
-            }
-            if op == Op::OpExit {
-                //print!("exit");
-                break;
+            match sha_rx.recv() {
+                Ok(Message::Block(block)) => {
+                    h1.update(&block);
+                    if let Err(e) = sha_tx.send(Message::Block(block)) {
+                        eprintln!("Error: {}", e);
+                    }
+                }
+                Ok(Message::Done) => {
+                    if let Err(e) = sha_tx.send(Message::Done) {
+                        eprintln!("Error: {}", e);
+                    }
+                    let digest = h1.clone().finalize();
+                    print!("SHA: {}", format!("{:X}", digest));
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    break;
+                }
             }
         }
     });
 
     let file_write_thread = thread::spawn( move || {
         loop {
-            let op: Op = write_rec.recv().unwrap();
-            if op == Op::OpBlock {
-                //print!("block");
-                let data : Vec<u8> = write_rec_data.recv().unwrap();
-                let _ = fo.write(data.as_slice());
-                continue;
-            }
-            if op == Op::OpExit {
-                //print!("exit");
-                break;
+            match file_write_rx.recv() {
+                Ok(Message::Block(block)) => {
+                    if let Err(e) = fo.write_all(&block) {
+                        eprintln!("Error: {}", e);
+                        break;
+                    }
+                }
+                Ok(Message::Done) => {
+                    break;
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    break;
+                }
             }
         }
     });
 
-    if let Err(e) = sha_send.send(Op::OpInit) {
-        panic!("{}", e);
-    }
-    if let Err(e) = write_send.send(Op::OpInit) {
-        panic!("{}", e);
-    }
 
-    loop {
-        let fr_ = fi.read(&mut buffer[..]);
-        if let Err(e) = fr_ {
-            eprintln!("Error: {}", e);
-            return;
-        }
-        let fr = match fr_ {
-            Ok( fr__ ) => fr__,
-            Err( _ ) => panic!(),
-        };
-        if fr == 0 {
-            let _ = sha_send.send(Op::OpFinalize);
-            let _ = write_send.send(Op::OpFinalize);
-            break;
-        }
-        let _ = sha_send.send(Op::OpBlock);
-        let _ = write_send.send(Op::OpBlock);
-        let mut vector : Vec<u8> = Vec::with_capacity(fr);
-        vector.extend_from_slice(&buffer[0..fr]);
-        let _ = sha_send_data.send(vector.clone());
-        let _ = write_send_data.send(vector);
-    }
-    if let Err(e) = sha_send.send(Op::OpExit) {
-        panic!("{}", e);
-    }
-    if let Err(e) = write_send.send(Op::OpExit) {
-        panic!("{}", e);
+    if let Err(_) = read_thread.join() {
+        panic!("Failure to join read thread");
     }
     if let Err(_) = sha_thread.join() {
         panic!("Failure to join sha thread");
