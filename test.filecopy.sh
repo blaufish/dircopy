@@ -42,6 +42,7 @@ else
 	echo "Ignoring errors..."
 fi
 
+copy "out/gen/sha/foo.1G.bin" "out/copy/foo.1G.bin.sha256mt" sha256mt
 copy "out/gen/sha/foo.1G.bin" "out/copy/foo.1G.bin.basic" basic
 copy "out/gen/sha/foo.1G.bin" "out/copy/foo.1G.bin.own" own
 copy "out/gen/sha/foo.1G.bin" "out/copy/foo.1G.bin.sha256" sha256
@@ -52,4 +53,5 @@ sha256sum \
 	out/copy/foo.1G.bin.basic \
 	out/copy/foo.1G.bin.own \
 	out/copy/foo.1G.bin.sha256 \
+	out/copy/foo.1G.bin.sha256mt \
 	out/copy/foo.1G.bin.system
