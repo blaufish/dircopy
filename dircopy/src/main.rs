@@ -190,13 +190,17 @@ fn copy(cfg: Configuration, input: std::path::PathBuf, output: std::path::PathBu
 }
 
 
-fn copy_dir(cfg: Configuration, input: std::path::PathBuf, output: std::path::PathBuf) -> io::Result<()> {
+fn copy_dir(cfg: Configuration, input: std::path::PathBuf, rel:  std::path::PathBuf, output: std::path::PathBuf) -> io::Result<()> {
     for entry in fs::read_dir(input)? {
         let entry = entry?;
         let path = entry.path();
         let mut output_path = output.clone();
+        let mut rel2 = rel.clone();
         match path.file_name() {
-            Some(s) => output_path.push(s),
+            Some(s) => {
+                output_path.push(s);
+                rel2.push(s);
+            },
             None => continue, //TODO error handling
         }
         if path.is_dir() {
@@ -204,14 +208,14 @@ fn copy_dir(cfg: Configuration, input: std::path::PathBuf, output: std::path::Pa
             if !output_path.exists() {
                 fs::create_dir(output_path.clone())?;
             }
-            copy_dir(cfg, path, output_path)?;
+            copy_dir(cfg, path, rel2, output_path)?;
         }
         else if path.is_file() {
             //println!("file: {}", path.display());
             //println!("file out: {}", output_path.clone().display());
             match copy(cfg, path, output_path) {
                 Ok(s) => {
-                    println!("Hash: {}", s);
+                    println!("{}  {}", s.to_lowercase(), rel2.display());
                 },
                 Err(s) => {
                     return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
@@ -274,7 +278,8 @@ fn main() -> std::io::Result<()> {
         return Ok(())
     }
 
-    if let Err(e) = copy_dir(cfg, args.input, args.output) {
+    let rel = std::path::PathBuf::new();
+    if let Err(e) = copy_dir(cfg, args.input, rel, args.output) {
         eprintln!("copy_dir failed: {}", e);
         return Err(e);
     }
