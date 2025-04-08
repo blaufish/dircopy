@@ -1,11 +1,17 @@
 use std::fs;
 use std::fs::File;
+use std::fs::OpenOptions;
+use std::io::IsTerminal;
 use std::io::Read;
 use std::io::Write;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::sync_channel;
+use std::time::Duration;
+use std::time::Instant;
 use std::thread;
 use std::io;
 
+use chrono::prelude::*;
 use clap::Parser;
 use sha2::{Sha256, Digest};
 
@@ -23,13 +29,66 @@ struct Args {
 
     #[arg(short, long, default_value_t = 10)]
     qs: usize,
-
 }
 
-#[derive(Clone,Copy)]
 struct Configuration {
     queue_size : usize,
     block_size : usize,
+    read_bytes : usize,
+    read_files : usize,
+    debug : bool,
+    last_update: Instant,
+}
+
+impl Configuration {
+    fn emit_debug_message(&mut self) -> bool {
+        if ! self.debug {
+            return false;
+        }
+        let update = self.last_update.elapsed().as_secs() > 5 ;
+        if update {
+            self.last_update = Instant::now();
+        }
+        return update;
+    }
+}
+
+fn debug_message(cfg : &Configuration) -> String {
+    let suf: Vec<&str> = vec!["", "K", "M", "G", "T", "P" ];
+    let mut size : usize = cfg.read_bytes;
+    let mut vec : Vec<usize> = Vec::new();
+    if size == 0 {
+        return "".to_string();
+    }
+    else {
+        while size > 0 {
+            let reminder = size % 1024;
+            size = size / 1024;
+            vec.push(reminder);
+        }
+    }
+    let mut result : String = "\r".to_string();
+    let mut max = 2;
+    for i in (0..vec.len()).rev() {
+        let reminder = vec[i];
+        if reminder == 0 {
+            continue;
+        }
+        let mut s = "?";
+        if i < suf.len() {
+            s = suf[i];
+        }
+        let tmp : String = format!("{}{} ", reminder, s);
+        result = result + &tmp;
+        max = max - 1;
+        if max == 0 {
+            break;
+        }
+    }
+    let tmp : String = format!("{} files      ", cfg.read_files);
+    result = result + &tmp;
+
+    return result;
 }
 
 enum Message {
@@ -37,7 +96,12 @@ enum Message {
     Done,
 }
 
-fn copy(cfg: Configuration, input: std::path::PathBuf, output: std::path::PathBuf) -> Result<String, String> {
+enum StatusMessage {
+    StatusIncBlock(usize),
+    StatusDone
+}
+
+fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::PathBuf) -> Result<String, String> {
     const BLOCK_SIZE : usize = 1024 * 1024;
     const QUEUE_SIZE : usize = 10;
     //cfg.queue_size;
@@ -69,6 +133,7 @@ fn copy(cfg: Configuration, input: std::path::PathBuf, output: std::path::PathBu
     let (sha_tx, sha_rx) = sync_channel::<Message>(QUEUE_SIZE);
     let (file_write_tx, file_write_rx) = sync_channel::<Message>(QUEUE_SIZE);
     let (hash_tx, hash_rx) = sync_channel::<String>(1);
+    let (status_tx, status_rx) = sync_channel::<StatusMessage>(QUEUE_SIZE);
 
     let read_thread = thread::spawn(move || {
         loop {
@@ -87,6 +152,10 @@ fn copy(cfg: Configuration, input: std::path::PathBuf, output: std::path::PathBu
                         eprintln!("Error: {}", e);
                         err = true;
                     }
+                    if let Err(e) = status_tx.send(StatusMessage::StatusIncBlock(n)) {
+                        eprintln!("Error: {}", e);
+                        err = true;
+                    }
                     if err {
                         break;
                     }
@@ -101,6 +170,9 @@ fn copy(cfg: Configuration, input: std::path::PathBuf, output: std::path::PathBu
             eprintln!("Error: {}", e);
         }
         if let Err(e) = file_write_tx.send(Message::Done) {
+            eprintln!("Error: {}", e);
+        }
+        if let Err(e) = status_tx.send(StatusMessage::StatusDone) {
             eprintln!("Error: {}", e);
         }
     });
@@ -155,6 +227,27 @@ fn copy(cfg: Configuration, input: std::path::PathBuf, output: std::path::PathBu
         }
     });
 
+    let mut stderr = io::stderr();
+    //let debug_msg : Option<String> = None;
+    loop {
+        match status_rx.recv() {
+            Ok(StatusMessage::StatusDone) => {
+                break;
+            },
+            Ok(StatusMessage::StatusIncBlock(u)) => {
+                cfg.read_bytes = cfg.read_bytes + u;
+
+                if cfg.emit_debug_message() {
+                    let debug_msg = debug_message(cfg);
+                    stderr.write(debug_msg.as_bytes());
+                    stderr.flush();
+                }
+            },
+            Err( e ) => {
+                eprintln!("Error status loop: {}", e);
+            }
+        }
+    }
 
     let mut failed = true;
 
@@ -186,20 +279,48 @@ fn copy(cfg: Configuration, input: std::path::PathBuf, output: std::path::PathBu
     if failed {
         return Err("failed".to_string());
     }
+
+    cfg.read_files = cfg.read_files + 1;
+
+    let debug_msg = debug_message(cfg);
+    stderr.write(debug_msg.as_bytes());
+    stderr.flush();
+
     Ok(result)
 }
 
 
 fn copy_directory(
-    cfg: Configuration,
+    cfg: &mut Configuration,
     input: std::path::PathBuf,
     output: std::path::PathBuf) -> io::Result<()> {
     let rel = std::path::PathBuf::new();
-    return copy_dir(cfg, input, rel, output);
+
+    let now = Local::now();
+    let date_string = now.format("shasum.%Y-%m-%d.%H.%M.%S.txt").to_string();
+    let mut foptions = OpenOptions::new();
+    let _ = foptions.write(true);
+    let _ = foptions.create_new(true);
+
+    let mut path_shasum = output.clone();
+    path_shasum.push(date_string);
+
+    let mut shasum_file;
+    match foptions.open(&path_shasum) {
+        Ok(file) => {
+            shasum_file = file;
+        },
+        Err(e) => {
+            return Err(e);
+        }
+    }
+    println!("Writing SHA256 sums to: {}", path_shasum.display());
+    return copy_dir(cfg, &mut shasum_file, input, rel, output);
 }
 
 fn copy_dir(
-    cfg: Configuration,
+    cfg: &mut Configuration,
+    shasum_file: &mut std::fs::File,
     input: std::path::PathBuf,
     rel:  std::path::PathBuf,
     output: std::path::PathBuf) -> io::Result<()> {
@@ -216,18 +337,19 @@ fn copy_dir(
             None => continue, //TODO error handling
         }
         if path.is_dir() {
-            println!("dir: {} --> {}", path.display(), output_path.display());
+            //println!("dir: {} --> {}", path.display(), output_path.display());
             if !output_path.exists() {
                 fs::create_dir(output_path.clone())?;
             }
-            copy_dir(cfg, path, rel2, output_path)?;
+            copy_dir(cfg, shasum_file, path, rel2, output_path)?;
         }
         else if path.is_file() {
             //println!("file: {}", path.display());
             //println!("file out: {}", output_path.clone().display());
             match copy(cfg, path, output_path) {
                 Ok(s) => {
-                    println!("{}  {}", s.to_lowercase(), rel2.display());
+                    let string = format!("{}  {}\n", s.to_lowercase(), rel2.display());
+                    let _ = shasum_file.write_all( string.as_bytes() );
                 },
                 Err(_s) => {
                     return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
@@ -275,9 +397,13 @@ fn main() -> std::io::Result<()> {
     }
     eprintln!("blocksize: {}", blocksize);
 
-    let cfg = Configuration {
+    let mut cfg = Configuration {
         queue_size: args.qs,
         block_size: blocksize,
+        read_bytes: 0,
+        read_files: 0,
+        debug: false,
+        last_update: Instant::now(),
     };
 
     if ! args.input.is_dir() {
@@ -290,7 +416,10 @@ fn main() -> std::io::Result<()> {
         return Ok(())
     }
 
-    if let Err(e) = copy_directory(cfg, args.input, args.output) {
+    let stderr = io::stderr();
+    cfg.debug = stderr.is_terminal();
+
+    if let Err(e) = copy_directory(&mut cfg, args.input, args.output) {
         eprintln!("copy_dir failed: {}", e);
         return Err(e);
     }
