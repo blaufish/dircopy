@@ -108,6 +108,7 @@ fn copy(cfg: Configuration, input: std::path::PathBuf, output: std::path::PathBu
                     }
                     let digest = h1.clone().finalize();
                     println!("SHA: {}", format!("{:X}", digest));
+                    break;
                 }
                 Err(e) => {
                     eprintln!("Error T-SHA: {}", e);
