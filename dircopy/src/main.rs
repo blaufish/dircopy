@@ -64,23 +64,27 @@ fn copy(cfg: Configuration, input: std::path::PathBuf, output: std::path::PathBu
         Err( _ ) => panic!(),
     };
 
-    let (read_tx, sha_rx) = sync_channel::<Message>(QUEUE_SIZE);
-    let (sha_tx, file_write_rx) = sync_channel::<Message>(QUEUE_SIZE);
+    let (sha_tx, sha_rx) = sync_channel::<Message>(QUEUE_SIZE);
+    let (file_write_tx, file_write_rx) = sync_channel::<Message>(QUEUE_SIZE);
 
     let read_thread = thread::spawn(move || {
         loop {
             let mut buffer = [0u8; BLOCK_SIZE];
             match fi.read(&mut buffer) {
                 Ok(0) => {
-                    if let Err(e) = read_tx.send(Message::Done) {
-                        eprintln!("Error: {}", e);
-                    }
                     break;
                 }
                 Ok(n) => {
-                    let block = buffer[0..n].to_vec();
-                    if let Err(e) = read_tx.send(Message::Block(block)) {
+                    let mut err = false;
+                    if let Err(e) = sha_tx.send(Message::Block(buffer[0..n].to_vec())) {
                         eprintln!("Error: {}", e);
+                        err = true;
+                    }
+                    if let Err(e) = file_write_tx.send(Message::Block(buffer[0..n].to_vec())) {
+                        eprintln!("Error: {}", e);
+                        err = true;
+                    }
+                    if err {
                         break;
                     }
                 }
@@ -90,6 +94,12 @@ fn copy(cfg: Configuration, input: std::path::PathBuf, output: std::path::PathBu
                 }
             }
         }
+        if let Err(e) = sha_tx.send(Message::Done) {
+            eprintln!("Error: {}", e);
+        }
+        if let Err(e) = file_write_tx.send(Message::Done) {
+            eprintln!("Error: {}", e);
+        }
     });
 
     let sha_thread = thread::spawn( move || {
@@ -98,14 +108,8 @@ fn copy(cfg: Configuration, input: std::path::PathBuf, output: std::path::PathBu
             match sha_rx.recv() {
                 Ok(Message::Block(block)) => {
                     h1.update(&block);
-                    if let Err(e) = sha_tx.send(Message::Block(block)) {
-                        eprintln!("Error: {}", e);
-                    }
                 }
                 Ok(Message::Done) => {
-                    if let Err(e) = sha_tx.send(Message::Done) {
-                        eprintln!("Error: {}", e);
-                    }
                     let digest = h1.clone().finalize();
                     println!("SHA: {}", format!("{:X}", digest));
                     break;
