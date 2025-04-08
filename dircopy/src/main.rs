@@ -190,7 +190,19 @@ fn copy(cfg: Configuration, input: std::path::PathBuf, output: std::path::PathBu
 }
 
 
-fn copy_dir(cfg: Configuration, input: std::path::PathBuf, rel:  std::path::PathBuf, output: std::path::PathBuf) -> io::Result<()> {
+fn copy_directory(
+    cfg: Configuration,
+    input: std::path::PathBuf,
+    output: std::path::PathBuf) -> io::Result<()> {
+    let rel = std::path::PathBuf::new();
+    return copy_dir(cfg, input, rel, output);
+}
+
+fn copy_dir(
+    cfg: Configuration,
+    input: std::path::PathBuf,
+    rel:  std::path::PathBuf,
+    output: std::path::PathBuf) -> io::Result<()> {
     for entry in fs::read_dir(input)? {
         let entry = entry?;
         let path = entry.path();
@@ -217,7 +229,7 @@ fn copy_dir(cfg: Configuration, input: std::path::PathBuf, rel:  std::path::Path
                 Ok(s) => {
                     println!("{}  {}", s.to_lowercase(), rel2.display());
                 },
-                Err(s) => {
+                Err(_s) => {
                     return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
                 }
             }
@@ -278,8 +290,7 @@ fn main() -> std::io::Result<()> {
         return Ok(())
     }
 
-    let rel = std::path::PathBuf::new();
-    if let Err(e) = copy_dir(cfg, args.input, rel, args.output) {
+    if let Err(e) = copy_directory(cfg, args.input, args.output) {
         eprintln!("copy_dir failed: {}", e);
         return Err(e);
     }
