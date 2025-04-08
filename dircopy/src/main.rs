@@ -37,22 +37,24 @@ enum Message {
     Done,
 }
 
-fn copy(cfg: Configuration, input: std::path::PathBuf, output: std::path::PathBuf) {
+fn copy(cfg: Configuration, input: std::path::PathBuf, output: std::path::PathBuf) -> Result<String, String> {
     const BLOCK_SIZE : usize = 1024 * 1024;
     const QUEUE_SIZE : usize = 10;
     //cfg.queue_size;
+
+    let mut result : String = "".to_string();
 
     let fi_ = File::open(input);
 
     if let Err(e) = fi_ {
         eprintln!("Error: {}", e);
-        return;
+        return Err(result); // TODO return a proper cause
     }
 
     let fo_ = File::create(output);
     if let Err(e) = fo_ {
         eprintln!("Error: {}", e);
-        return;
+        return Err(result); //TODO return a proper cause
     }
 
     let mut fi = match fi_ {
@@ -66,6 +68,7 @@ fn copy(cfg: Configuration, input: std::path::PathBuf, output: std::path::PathBu
 
     let (sha_tx, sha_rx) = sync_channel::<Message>(QUEUE_SIZE);
     let (file_write_tx, file_write_rx) = sync_channel::<Message>(QUEUE_SIZE);
+    let (hash_tx, hash_rx) = sync_channel::<String>(1);
 
     let read_thread = thread::spawn(move || {
         loop {
@@ -104,6 +107,7 @@ fn copy(cfg: Configuration, input: std::path::PathBuf, output: std::path::PathBu
 
     let sha_thread = thread::spawn( move || {
         let mut h1 = Sha256::new();
+        let mut incomplete = true;
         loop {
             match sha_rx.recv() {
                 Ok(Message::Block(block)) => {
@@ -111,13 +115,22 @@ fn copy(cfg: Configuration, input: std::path::PathBuf, output: std::path::PathBu
                 }
                 Ok(Message::Done) => {
                     let digest = h1.clone().finalize();
-                    println!("SHA: {}", format!("{:X}", digest));
+                    let strdigest = format!("{:X}", digest);
+                    if let Err(e) = hash_tx.send(strdigest) {
+                        eprintln!("Error T-SHA: {}", e);
+                    }
+                    incomplete = false;
                     break;
                 }
                 Err(e) => {
                     eprintln!("Error T-SHA: {}", e);
                     break;
                 }
+            }
+        }
+        if incomplete {
+            if let Err(e) = hash_tx.send("".to_string()) {
+                eprintln!("Error T-SHA: {}", e);
             }
         }
     });
@@ -143,6 +156,23 @@ fn copy(cfg: Configuration, input: std::path::PathBuf, output: std::path::PathBu
     });
 
 
+    let mut failed = true;
+
+    match hash_rx.recv() {
+        Ok(s) => {
+            if s.len() == 64 {
+                result = s;
+                failed = false;
+            }
+            else {
+                eprintln!("Bad SHA-256 received: '{}'", s);
+            }
+        },
+        Err(e) => {
+            eprintln!("Error receiving sha256: {}", e);
+        }
+    }
+
     if let Err(_) = read_thread.join() {
         panic!("Failure to join read thread");
     }
@@ -152,6 +182,11 @@ fn copy(cfg: Configuration, input: std::path::PathBuf, output: std::path::PathBu
     if let Err(_) = file_write_thread.join() {
         panic!("Failure to join file write thread");
     }
+
+    if failed {
+        return Err("failed".to_string());
+    }
+    Ok(result)
 }
 
 
@@ -172,9 +207,16 @@ fn copy_dir(cfg: Configuration, input: std::path::PathBuf, output: std::path::Pa
             copy_dir(cfg, path, output_path)?;
         }
         else if path.is_file() {
-            println!("file: {}", path.display());
-            println!("file out: {}", output_path.clone().display());
-            copy(cfg, path, output_path);
+            //println!("file: {}", path.display());
+            //println!("file out: {}", output_path.clone().display());
+            match copy(cfg, path, output_path) {
+                Ok(s) => {
+                    println!("Hash: {}", s);
+                },
+                Err(s) => {
+                    return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
+                }
+            }
         }
     }
     Ok(())
