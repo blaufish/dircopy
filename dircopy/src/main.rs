@@ -4,9 +4,7 @@ use std::fs::OpenOptions;
 use std::io::IsTerminal;
 use std::io::Read;
 use std::io::Write;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::sync_channel;
-use std::time::Duration;
 use std::time::Instant;
 use std::thread;
 use std::io;
@@ -24,16 +22,12 @@ struct Args {
     #[arg(short, long)]
     output: std::path::PathBuf,
 
-    #[arg(short, long, default_value = "1M")]
-    bs: String,
-
     #[arg(short, long, default_value_t = 10)]
     qs: usize,
 }
 
 struct Configuration {
     queue_size : usize,
-    block_size : usize,
     read_bytes : usize,
     read_files : usize,
     debug : bool,
@@ -103,8 +97,7 @@ enum StatusMessage {
 
 fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::PathBuf) -> Result<String, String> {
     const BLOCK_SIZE : usize = 1024 * 1024;
-    const QUEUE_SIZE : usize = 10;
-    //cfg.queue_size;
+    let queue_size : usize = cfg.queue_size;
 
     let mut result : String = "".to_string();
 
@@ -130,10 +123,10 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
         Err( _ ) => panic!(),
     };
 
-    let (sha_tx, sha_rx) = sync_channel::<Message>(QUEUE_SIZE);
-    let (file_write_tx, file_write_rx) = sync_channel::<Message>(QUEUE_SIZE);
+    let (sha_tx, sha_rx) = sync_channel::<Message>(queue_size);
+    let (file_write_tx, file_write_rx) = sync_channel::<Message>(queue_size);
     let (hash_tx, hash_rx) = sync_channel::<String>(1);
-    let (status_tx, status_rx) = sync_channel::<StatusMessage>(QUEUE_SIZE);
+    let (status_tx, status_rx) = sync_channel::<StatusMessage>(queue_size);
 
     let read_thread = thread::spawn(move || {
         loop {
@@ -239,8 +232,8 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
 
                 if cfg.emit_debug_message() {
                     let debug_msg = debug_message(cfg);
-                    stderr.write(debug_msg.as_bytes());
-                    stderr.flush();
+                    let _ = stderr.write(debug_msg.as_bytes());
+                    let _ = stderr.flush();
                 }
             },
             Err( e ) => {
@@ -283,8 +276,8 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
     cfg.read_files = cfg.read_files + 1;
 
     let debug_msg = debug_message(cfg);
-    stderr.write(debug_msg.as_bytes());
-    stderr.flush();
+    let _ = stderr.write(debug_msg.as_bytes());
+    let _ = stderr.flush();
 
     Ok(result)
 }
@@ -360,7 +353,7 @@ fn copy_dir(
     Ok(())
 }
 
-fn s2i(string : String) -> usize {
+fn _s2i(string : String) -> usize {
     let mut prefix : usize = 0;
     let mut exponent : usize = 1;
     for c in string.chars() {
@@ -390,16 +383,8 @@ fn s2i(string : String) -> usize {
 
 fn main() -> std::io::Result<()> {
     let args = Args::parse();
-    let blocksize : usize = s2i(args.bs);
-
-    if blocksize < 1 {
-        return Ok(())
-    }
-    eprintln!("blocksize: {}", blocksize);
-
     let mut cfg = Configuration {
         queue_size: args.qs,
-        block_size: blocksize,
         read_bytes: 0,
         read_files: 0,
         debug: false,
