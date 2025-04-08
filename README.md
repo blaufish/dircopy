@@ -2,6 +2,81 @@
 
 I'm just having fun learning rust, nothing serious here so far!
 
+Beware: everything here is super duper ultra beta alpha quality.
+
+## Directory Copy with SHA256
+
+Early prototype of a directory copy utility.
+
+* [dircopy/src/main.rs](dircopy/src/main.rs)
+
+`./dircopy/target/release/dircopy -h`
+
+``` plain
+Usage: dircopy [OPTIONS] --input <INPUT> --output <OUTPUT>
+
+Options:
+  -i, --input <INPUT>
+  -o, --output <OUTPUT>
+  -b, --bs <BS>          [default: 1M]
+  -q, --qs <QS>          [default: 10]
+  -h, --help             Print help
+  -V, --version          Print version
+```
+
+`./dircopy/target/release/dircopy -i /dirA -o /dirB`
+
+``` plain
+blocksize: 1048576
+Writing SHA256 sums to: /dirB/shasum.2025-04-08.21.38.02.txt
+32G 178M 920 files
+```
+
+## File Copy
+
+Just testing various ways to copy files and benchmarking if anything matters.
+
+* [filecopy/src/main.rs](filecopy/src/main.rs)
+* [test.filecopy.sh](test.filecopy.sh)
+
+System copy is a bit faster than copying through rust, but not that much.
+
+``` plain
+Cleaned files
++ ./filecopy/target/release/filecopy -i out/gen/sha/foo.1G.bin -o out/copy/foo.1G.bin.sha256mt -m sha256mt
+Error: receiving on a closed channel
+SHA: D87E1A61824F2C662FD882EA46771FFFCAE1550991F3E1A4D20F0D3853B1A902
+real    0m1.373s
+user    0m0.632s
+sys     0m1.638s
++ ./filecopy/target/release/filecopy -i out/gen/sha/foo.1G.bin -o out/copy/foo.1G.bin.basic -m basic
+
+real    0m1.093s
+user    0m0.000s
+sys     0m1.093s
++ ./filecopy/target/release/filecopy -i out/gen/sha/foo.1G.bin -o out/copy/foo.1G.bin.own -m own
+
+real    0m1.148s
+user    0m0.010s
+sys     0m1.138s
++ ./filecopy/target/release/filecopy -i out/gen/sha/foo.1G.bin -o out/copy/foo.1G.bin.sha256 -m sha256
+SHA: D87E1A61824F2C662FD882EA46771FFFCAE1550991F3E1A4D20F0D3853B1A902
+real    0m1.656s
+user    0m0.512s
+sys     0m1.144s
++ cp -- out/gen/sha/foo.1G.bin out/copy/foo.1G.bin.system
+
+real    0m1.077s
+user    0m0.000s
+sys     0m1.062s
+d87e1a61824f2c662fd882ea46771fffcae1550991f3e1a4d20f0d3853b1a902  out/gen/sha/foo.1G.bin
+d87e1a61824f2c662fd882ea46771fffcae1550991f3e1a4d20f0d3853b1a902  out/copy/foo.1G.bin.basic
+d87e1a61824f2c662fd882ea46771fffcae1550991f3e1a4d20f0d3853b1a902  out/copy/foo.1G.bin.own
+d87e1a61824f2c662fd882ea46771fffcae1550991f3e1a4d20f0d3853b1a902  out/copy/foo.1G.bin.sha256
+d87e1a61824f2c662fd882ea46771fffcae1550991f3e1a4d20f0d3853b1a902  out/copy/foo.1G.bin.sha256mt
+d87e1a61824f2c662fd882ea46771fffcae1550991f3e1a4d20f0d3853b1a902  out/copy/foo.1G.bin.system
+```
+
 ## Generate Test Files
 
 Generate test files.
