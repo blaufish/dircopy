@@ -45,44 +45,45 @@ impl Configuration {
         }
         return update;
     }
-}
 
-fn debug_message(cfg : &Configuration) -> String {
-    let suf: Vec<&str> = vec!["", "K", "M", "G", "T", "P" ];
-    let mut size : usize = cfg.read_bytes;
-    let mut vec : Vec<usize> = Vec::new();
-    if size == 0 {
-        return "".to_string();
-    }
-    else {
-        while size > 0 {
-            let reminder = size % 1024;
-            size = size / 1024;
-            vec.push(reminder);
+    fn debug_message(&self) -> String {
+        let suf: Vec<&str> = vec!["", "K", "M", "G", "T", "P" ];
+        let mut size : usize = self.read_bytes;
+        let mut vec : Vec<usize> = Vec::new();
+        if size == 0 {
+            return "".to_string();
         }
-    }
-    let mut result : String = "\r".to_string();
-    let mut max = 2;
-    for i in (0..vec.len()).rev() {
-        let reminder = vec[i];
-        if reminder == 0 {
-            continue;
+        else {
+            while size > 0 {
+                let reminder = size % 1024;
+                size = size / 1024;
+                vec.push(reminder);
+            }
         }
-        let mut s = "?";
-        if i < suf.len() {
-            s = suf[i];
+        let mut result : String = "\r".to_string();
+        let mut max = 2;
+        for i in (0..vec.len()).rev() {
+            let reminder = vec[i];
+            if reminder == 0 {
+                continue;
+            }
+            let mut s = "?";
+            if i < suf.len() {
+                s = suf[i];
+            }
+            let tmp : String = format!("{}{} ", reminder, s);
+            result = result + &tmp;
+            max = max - 1;
+            if max == 0 {
+                break;
+            }
         }
-        let tmp : String = format!("{}{} ", reminder, s);
+        let tmp : String = format!("{} files      ", self.read_files);
         result = result + &tmp;
-        max = max - 1;
-        if max == 0 {
-            break;
-        }
-    }
-    let tmp : String = format!("{} files      ", cfg.read_files);
-    result = result + &tmp;
 
-    return result;
+        return result;
+    }
+
 }
 
 enum Message {
@@ -231,7 +232,7 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
                 cfg.read_bytes = cfg.read_bytes + u;
 
                 if cfg.emit_debug_message() {
-                    let debug_msg = debug_message(cfg);
+                    let debug_msg = cfg.debug_message();
                     let _ = stderr.write(debug_msg.as_bytes());
                     let _ = stderr.flush();
                 }
@@ -275,7 +276,7 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
 
     cfg.read_files = cfg.read_files + 1;
 
-    let debug_msg = debug_message(cfg);
+    let debug_msg = cfg.debug_message();
     let _ = stderr.write(debug_msg.as_bytes());
     let _ = stderr.flush();
 
