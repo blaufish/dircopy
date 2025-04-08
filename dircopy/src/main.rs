@@ -124,6 +124,7 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
         Err( _ ) => panic!(),
     };
 
+    let (read_tx, read_rx) = sync_channel::<Message>(queue_size);
     let (sha_tx, sha_rx) = sync_channel::<Message>(queue_size);
     let (file_write_tx, file_write_rx) = sync_channel::<Message>(queue_size);
     let (hash_tx, hash_rx) = sync_channel::<String>(1);
@@ -137,22 +138,45 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
                     break;
                 }
                 Ok(n) => {
+                    if let Err(e) = read_tx.send(Message::Block(buffer[0..n].to_vec())) {
+                        eprintln!("Error: {}", e);
+                        break;
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    break;
+                }
+            }
+        }
+        if let Err(e) = read_tx.send(Message::Done) {
+            eprintln!("Error: {}", e);
+        }
+    });
+
+    let router_thread = thread::spawn( move || {
+        loop {
+            match read_rx.recv() {
+                Ok(Message::Block(block)) => {
                     let mut err = false;
-                    if let Err(e) = sha_tx.send(Message::Block(buffer[0..n].to_vec())) {
+                    if let Err(e) = sha_tx.send(Message::Block(block.clone())) {
                         eprintln!("Error: {}", e);
                         err = true;
                     }
-                    if let Err(e) = file_write_tx.send(Message::Block(buffer[0..n].to_vec())) {
+                    if let Err(e) = file_write_tx.send(Message::Block(block.clone())) {
                         eprintln!("Error: {}", e);
                         err = true;
                     }
-                    if let Err(e) = status_tx.send(StatusMessage::StatusIncBlock(n)) {
+                    if let Err(e) = status_tx.send(StatusMessage::StatusIncBlock(block.len())) {
                         eprintln!("Error: {}", e);
                         err = true;
                     }
                     if err {
                         break;
                     }
+                }
+                Ok(Message::Done) => {
+                    break;
                 }
                 Err(e) => {
                     eprintln!("Error: {}", e);
@@ -262,6 +286,9 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
 
     if let Err(_) = read_thread.join() {
         panic!("Failure to join read thread");
+    }
+    if let Err(_) = router_thread.join() {
+        panic!("Failure to join router thread");
     }
     if let Err(_) = sha_thread.join() {
         panic!("Failure to join sha thread");
