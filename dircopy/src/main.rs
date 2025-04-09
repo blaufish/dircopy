@@ -83,7 +83,6 @@ impl Configuration {
 
         return result;
     }
-
 }
 
 enum Message {
@@ -96,33 +95,12 @@ enum StatusMessage {
     StatusDone
 }
 
-fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::PathBuf) -> Result<String, String> {
+fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::PathBuf) -> Result<String, io::Error> {
     const BLOCK_SIZE : usize = 1024 * 1024;
     let queue_size : usize = cfg.queue_size;
 
-    let mut result : String = "".to_string();
-
-    let fi_ = File::open(input);
-
-    if let Err(e) = fi_ {
-        eprintln!("Error: {}", e);
-        return Err(result); // TODO return a proper cause
-    }
-
-    let fo_ = File::create(output);
-    if let Err(e) = fo_ {
-        eprintln!("Error: {}", e);
-        return Err(result); //TODO return a proper cause
-    }
-
-    let mut fi = match fi_ {
-        Ok( fi__ ) => fi__,
-        Err( _ ) => panic!(),
-    };
-    let mut fo = match fo_ {
-        Ok( fo__ ) => fo__,
-        Err( _ ) => panic!(),
-    };
+    let mut fi = File::open(input)?;
+    let mut fo = File::create(output)?;
 
     let (read_tx, read_rx) = sync_channel::<Message>(queue_size);
     let (sha_tx, sha_rx) = sync_channel::<Message>(queue_size);
@@ -268,6 +246,7 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
     }
 
     let mut failed = true;
+    let mut result : String = "".to_string();
 
     match hash_rx.recv() {
         Ok(s) => {
@@ -298,7 +277,7 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
     }
 
     if failed {
-        return Err("failed".to_string());
+        return Err(std::io::Error::from(std::io::ErrorKind::Interrupted));
     }
 
     cfg.read_files = cfg.read_files + 1;
