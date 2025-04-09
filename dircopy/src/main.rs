@@ -27,6 +27,9 @@ struct Args {
 
     #[arg(long, default_value = "1M")]
     block_size: String,
+
+    #[arg(long, default_value = "default")]
+    overwrite_policy: String,
 }
 
 struct Configuration {
@@ -36,6 +39,7 @@ struct Configuration {
     read_files : usize,
     debug : bool,
     last_update: Instant,
+    overwrite_policy: OverwritePolicy,
 }
 
 impl Configuration {
@@ -98,6 +102,47 @@ enum Message {
 enum StatusMessage {
     StatusIncBlock(usize),
     StatusDone
+}
+
+trait OverwritePolicyTrait {
+    fn do_overwrite(&self, old_file: &std::fs::Metadata, new_file: &std::fs::Metadata) -> bool;
+}
+
+enum OverwritePolicy {
+    OverwritePolicyNever,
+    OverwritePolicyAlways,
+    OverwritePolicyDefault,
+}
+impl OverwritePolicyTrait for OverwritePolicy {
+    fn do_overwrite(&self, old_file: &std::fs::Metadata, new_file: &std::fs::Metadata) -> bool {
+        match self {
+            OverwritePolicy::OverwritePolicyNever => {
+                return false;
+            }
+            OverwritePolicy::OverwritePolicyAlways => {
+                return true;
+            }
+            OverwritePolicy::OverwritePolicyDefault => {
+                if old_file.is_symlink() {
+                    return false;
+                }
+                if new_file.is_symlink() {
+                    return false;
+                }
+                if new_file.len() <= old_file.len() {
+                    return false;
+                }
+                if let Ok(nm) = new_file.modified() {
+                    if let Ok(of) = old_file.modified() {
+                        if nm < of {
+                            return false;
+                        }
+                    }
+                }
+                return true;
+            }
+        }
+    }
 }
 
 fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::PathBuf) -> Result<String, io::Error> {
@@ -253,7 +298,6 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
     });
 
     let mut stderr = io::stderr();
-    //let debug_msg : Option<String> = None;
     loop {
         match status_rx.recv() {
             Ok(StatusMessage::StatusDone) => {
@@ -370,15 +414,19 @@ fn copy_dir(
             None => continue, //TODO error handling
         }
         if path.is_dir() {
-            //println!("dir: {} --> {}", path.display(), output_path.display());
             if !output_path.exists() {
                 fs::create_dir(output_path.clone())?;
             }
             copy_dir(cfg, shasum_file, path, rel2, output_path)?;
         }
         else if path.is_file() {
-            //println!("file: {}", path.display());
-            //println!("file out: {}", output_path.clone().display());
+            if output_path.exists() {
+                let old_metadata = entry.metadata()?;
+                let new_metadata = fs::metadata(output_path.clone())?;
+                if ! cfg.overwrite_policy.do_overwrite(&old_metadata, &new_metadata) {
+                    continue;
+                }
+            }
             match copy(cfg, path, output_path) {
                 Ok(s) => {
                     let string = format!("{}  {}\n", s.to_lowercase(), rel2.display());
@@ -425,6 +473,24 @@ fn main() -> std::io::Result<()> {
     let args = Args::parse();
     let queue_size = args.queue_size;
     let block_size = s2i(args.block_size);
+
+    let overwrite_policy : OverwritePolicy;
+    match args.overwrite_policy.as_str() {
+        "default" => {
+            overwrite_policy = OverwritePolicy::OverwritePolicyDefault;
+        }
+        "never" => {
+            overwrite_policy = OverwritePolicy::OverwritePolicyNever;
+        }
+        "always" => {
+            overwrite_policy = OverwritePolicy::OverwritePolicyAlways;
+        }
+        _ => {
+            eprintln!("Illegal overwrite policy: {}", args.overwrite_policy);
+            return Ok(());
+        }
+    }
+
     let mut cfg = Configuration {
         queue_size: queue_size,
         block_size: block_size,
@@ -432,6 +498,7 @@ fn main() -> std::io::Result<()> {
         read_files: 0,
         debug: false,
         last_update: Instant::now(),
+        overwrite_policy: overwrite_policy,
     };
 
     if ! args.input.is_dir() {
@@ -445,6 +512,7 @@ fn main() -> std::io::Result<()> {
     }
     println!("Block size: {}", block_size);
     println!("Queue size: {}", queue_size);
+    println!("Overwite policy: {}", args.overwrite_policy);
 
     let stderr = io::stderr();
     cfg.debug = stderr.is_terminal();
