@@ -105,7 +105,6 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
     let (read_tx, read_rx) = sync_channel::<Message>(queue_size);
     let (sha_tx, sha_rx) = sync_channel::<Message>(queue_size);
     let (file_write_tx, file_write_rx) = sync_channel::<Message>(queue_size);
-    let (hash_tx, hash_rx) = sync_channel::<String>(1);
     let (status_tx, status_rx) = sync_channel::<StatusMessage>(queue_size);
 
     let read_thread = thread::spawn(move || {
@@ -173,7 +172,7 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
         }
     });
 
-    let sha_thread = thread::spawn( move || {
+    let sha_thread = thread::spawn( move || -> Result<String,()> {
         let mut h1 = Sha256::new();
         let mut incomplete = true;
         loop {
@@ -182,11 +181,6 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
                     h1.update(&block);
                 }
                 Ok(Message::Done) => {
-                    let digest = h1.clone().finalize();
-                    let strdigest = format!("{:X}", digest);
-                    if let Err(e) = hash_tx.send(strdigest) {
-                        eprintln!("Error T-SHA: {}", e);
-                    }
                     incomplete = false;
                     break;
                 }
@@ -197,10 +191,11 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
             }
         }
         if incomplete {
-            if let Err(e) = hash_tx.send("".to_string()) {
-                eprintln!("Error T-SHA: {}", e);
-            }
+            return Err(());
         }
+        let digest = h1.finalize();
+        let strdigest = format!("{:x}", digest);
+        return Ok(strdigest);
     });
 
     let file_write_thread = thread::spawn( move || {
@@ -248,7 +243,24 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
     let mut failed = true;
     let mut result : String = "".to_string();
 
-    match hash_rx.recv() {
+    if let Err(_) = read_thread.join() {
+        panic!("Failure to join read thread");
+    }
+    if let Err(_) = router_thread.join() {
+        panic!("Failure to join router thread");
+    }
+    if let Err(_) = file_write_thread.join() {
+        panic!("Failure to join file write thread");
+    }
+
+    let sha_result: Result<String,()>;
+    match sha_thread.join() {
+        Ok(s) => {
+            sha_result = s;
+        }
+        Err(_) => panic!("Failure to join sha thread"),
+    }
+    match sha_result {
         Ok(s) => {
             if s.len() == 64 {
                 result = s;
@@ -257,23 +269,10 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
             else {
                 eprintln!("Bad SHA-256 received: '{}'", s);
             }
-        },
-        Err(e) => {
-            eprintln!("Error receiving sha256: {}", e);
         }
-    }
-
-    if let Err(_) = read_thread.join() {
-        panic!("Failure to join read thread");
-    }
-    if let Err(_) = router_thread.join() {
-        panic!("Failure to join router thread");
-    }
-    if let Err(_) = sha_thread.join() {
-        panic!("Failure to join sha thread");
-    }
-    if let Err(_) = file_write_thread.join() {
-        panic!("Failure to join file write thread");
+        Err(_) => {
+            eprintln!("SHA-thread completed errornously!");
+        }
     }
 
     if failed {
