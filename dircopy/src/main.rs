@@ -88,6 +88,7 @@ impl Configuration {
 enum Message {
     Block(Vec<u8>),
     Done,
+    Error,
 }
 
 enum StatusMessage {
@@ -108,10 +109,12 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
     let (status_tx, status_rx) = sync_channel::<StatusMessage>(queue_size);
 
     let read_thread = thread::spawn(move || {
+        let mut failed = true;
         loop {
             let mut buffer = [0u8; BLOCK_SIZE];
             match fi.read(&mut buffer) {
                 Ok(0) => {
+                    failed = false;
                     break;
                 }
                 Ok(n) => {
@@ -126,16 +129,22 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
                 }
             }
         }
+        if failed {
+            if let Err(e) = read_tx.send(Message::Error) {
+                eprintln!("Error: {}", e);
+            }
+            return ;
+        }
         if let Err(e) = read_tx.send(Message::Done) {
             eprintln!("Error: {}", e);
         }
     });
 
     let router_thread = thread::spawn( move || {
+        let mut err = false;
         loop {
             match read_rx.recv() {
                 Ok(Message::Block(block)) => {
-                    let mut err = false;
                     if let Err(e) = sha_tx.send(Message::Block(block.clone())) {
                         eprintln!("Error: {}", e);
                         err = true;
@@ -155,17 +164,31 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
                 Ok(Message::Done) => {
                     break;
                 }
+                Ok(Message::Error) => {
+                    err = true;
+                    break;
+                }
                 Err(e) => {
                     eprintln!("Error: {}", e);
                     break;
                 }
             }
         }
-        if let Err(e) = sha_tx.send(Message::Done) {
-            eprintln!("Error: {}", e);
+        if err {
+            if let Err(e) = sha_tx.send(Message::Error) {
+                eprintln!("Error: {}", e);
+            }
+            if let Err(e) = file_write_tx.send(Message::Error) {
+                eprintln!("Error: {}", e);
+            }
         }
-        if let Err(e) = file_write_tx.send(Message::Done) {
-            eprintln!("Error: {}", e);
+        else {
+            if let Err(e) = sha_tx.send(Message::Done) {
+                eprintln!("Error: {}", e);
+            }
+            if let Err(e) = file_write_tx.send(Message::Done) {
+                eprintln!("Error: {}", e);
+            }
         }
         if let Err(e) = status_tx.send(StatusMessage::StatusDone) {
             eprintln!("Error: {}", e);
@@ -179,6 +202,9 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
             match sha_rx.recv() {
                 Ok(Message::Block(block)) => {
                     h1.update(&block);
+                }
+                Ok(Message::Error) => {
+                    break;
                 }
                 Ok(Message::Done) => {
                     incomplete = false;
@@ -206,6 +232,9 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
                         eprintln!("Error T-FW: {}", e);
                         break;
                     }
+                }
+                Ok(Message::Error) => {
+                    break;
                 }
                 Ok(Message::Done) => {
                     break;
