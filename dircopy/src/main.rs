@@ -22,12 +22,16 @@ struct Args {
     #[arg(short, long)]
     output: std::path::PathBuf,
 
-    #[arg(short, long, default_value_t = 10)]
-    qs: usize,
+    #[arg(long, default_value_t = 10)]
+    queue_size: usize,
+
+    #[arg(long, default_value = "1M")]
+    block_size: String,
 }
 
 struct Configuration {
     queue_size : usize,
+    block_size : usize,
     read_bytes : usize,
     read_files : usize,
     debug : bool,
@@ -97,7 +101,7 @@ enum StatusMessage {
 }
 
 fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::PathBuf) -> Result<String, io::Error> {
-    const BLOCK_SIZE : usize = 1024 * 1024;
+    let block_size : usize = cfg.block_size;
     let queue_size : usize = cfg.queue_size;
 
     let mut fi = File::open(input)?;
@@ -110,15 +114,16 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
 
     let read_thread = thread::spawn(move || {
         let mut failed = true;
+        let mut heap_buf: Vec<u8> = Vec::with_capacity(block_size);
+        heap_buf.resize(block_size, 0x00);
         loop {
-            let mut buffer = [0u8; BLOCK_SIZE];
-            match fi.read(&mut buffer) {
+            match fi.read(&mut heap_buf[0..block_size]) {
                 Ok(0) => {
                     failed = false;
                     break;
                 }
                 Ok(n) => {
-                    if let Err(e) = read_tx.send(Message::Block(buffer[0..n].to_vec())) {
+                    if let Err(e) = read_tx.send(Message::Block(heap_buf[0..n].to_vec())) {
                         eprintln!("Error: {}", e);
                         break;
                     }
@@ -388,7 +393,7 @@ fn copy_dir(
     Ok(())
 }
 
-fn _s2i(string : String) -> usize {
+fn s2i(string : String) -> usize {
     let mut prefix : usize = 0;
     let mut exponent : usize = 1;
     for c in string.chars() {
@@ -418,8 +423,11 @@ fn _s2i(string : String) -> usize {
 
 fn main() -> std::io::Result<()> {
     let args = Args::parse();
+    let queue_size = args.queue_size;
+    let block_size = s2i(args.block_size);
     let mut cfg = Configuration {
-        queue_size: args.qs,
+        queue_size: queue_size,
+        block_size: block_size,
         read_bytes: 0,
         read_files: 0,
         debug: false,
@@ -435,6 +443,8 @@ fn main() -> std::io::Result<()> {
         eprintln!("Directory {} is not a directory", args.output.display());
         return Ok(())
     }
+    println!("Block size: {}", block_size);
+    println!("Queue size: {}", queue_size);
 
     let stderr = io::stderr();
     cfg.debug = stderr.is_terminal();
