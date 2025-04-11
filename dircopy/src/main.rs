@@ -38,6 +38,7 @@ struct Configuration {
     read_bytes : usize,
     read_files : usize,
     debug : bool,
+    start_of_copying: Instant,
     last_update: Instant,
     overwrite_policy: OverwritePolicy,
 }
@@ -47,7 +48,7 @@ impl Configuration {
         if ! self.debug {
             return false;
         }
-        let update = self.last_update.elapsed().as_secs() > 5 ;
+        let update = self.last_update.elapsed().as_secs() > 3 ;
         if update {
             self.last_update = Instant::now();
         }
@@ -86,7 +87,12 @@ impl Configuration {
                 break;
             }
         }
-        let tmp : String = format!("{} files      ", self.read_files);
+        let seconds = self.start_of_copying.elapsed().as_secs();
+        if let Ok(bw) = bandwidth(self.read_bytes, seconds) {
+            result = result + "| " + &bw;
+        }
+
+        let tmp : String = format!(" | {} files      ", self.read_files);
         result = result + &tmp;
 
         return result;
@@ -359,10 +365,6 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
 
     cfg.read_files = cfg.read_files + 1;
 
-    let debug_msg = cfg.debug_message();
-    let _ = stderr.write(debug_msg.as_bytes());
-    let _ = stderr.flush();
-
     Ok(result)
 }
 
@@ -392,7 +394,17 @@ fn copy_directory(
         }
     }
     println!("Writing SHA256 sums to: {}", path_shasum.display());
-    return copy_dir(cfg, &mut shasum_file, input, rel, output);
+
+    let result = copy_dir(cfg, &mut shasum_file, input, rel, output);
+
+    if cfg.debug {
+        let debug_msg = cfg.debug_message();
+        let mut stderr = io::stderr();
+        let _ = stderr.write(debug_msg.as_bytes());
+    }
+
+    return result;
+
 }
 
 fn copy_dir(
@@ -514,6 +526,7 @@ fn main() -> std::io::Result<()> {
         read_bytes: 0,
         read_files: 0,
         debug: false,
+        start_of_copying: Instant::now(),
         last_update: Instant::now(),
         overwrite_policy: overwrite_policy,
     };
@@ -534,12 +547,9 @@ fn main() -> std::io::Result<()> {
     let stderr = io::stderr();
     cfg.debug = stderr.is_terminal();
 
-    let start_of_copying : Instant = Instant::now();
-
     let _ = copy_directory(&mut cfg, args.input, args.output)?;
     eprintln!("");
-    let elapsed = start_of_copying.elapsed();
-    let seconds = elapsed.as_secs();
+    let seconds = cfg.start_of_copying.elapsed().as_secs();
     println!("Execution time: {}s", seconds);
     if let Ok(bw) = bandwidth(cfg.read_bytes, seconds) {
         println!("Average bandwidth: {}", bw);
