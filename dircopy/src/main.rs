@@ -55,7 +55,7 @@ impl Configuration {
     }
 
     fn debug_message(&self) -> String {
-        let suf: Vec<&str> = vec!["", "K", "M", "G", "T", "P" ];
+        let suf: Vec<&str> = vec!["B", "KiB", "MiB", "GiB", "TiB", "PiB" ];
         let mut size : usize = self.read_bytes;
         let mut vec : Vec<usize> = Vec::new();
         if size == 0 {
@@ -69,7 +69,7 @@ impl Configuration {
             }
         }
         let mut result : String = "\r".to_string();
-        let mut max = 2;
+        let mut max = 3;
         for i in (0..vec.len()).rev() {
             let reminder = vec[i];
             if reminder == 0 {
@@ -469,6 +469,23 @@ fn s2i(string : String) -> usize {
     return result;
 }
 
+fn bandwidth(read_bytes: usize, seconds: u64) -> Result<String, ()> {
+    if seconds == 0 {
+        return Err(());
+    }
+    let mut rb = (read_bytes as f64) / (seconds as f64);
+    let sufixes: Vec<&str> = vec!["B", "KB", "MB", "GB", "TB", "PB" ];
+    let mut suff = "";
+    for s in sufixes {
+        suff = s;
+        if rb < 1000.0 {
+            break;
+        }
+        rb = rb / 1000.0;
+    }
+    return Ok(format!("{:.3} {}/s", rb, suff));
+}
+
 fn main() -> std::io::Result<()> {
     let args = Args::parse();
     let queue_size = args.queue_size;
@@ -517,9 +534,15 @@ fn main() -> std::io::Result<()> {
     let stderr = io::stderr();
     cfg.debug = stderr.is_terminal();
 
-    if let Err(e) = copy_directory(&mut cfg, args.input, args.output) {
-        eprintln!("copy_dir failed: {}", e);
-        return Err(e);
+    let start_of_copying : Instant = Instant::now();
+
+    let _ = copy_directory(&mut cfg, args.input, args.output)?;
+    eprintln!("");
+    let elapsed = start_of_copying.elapsed();
+    let seconds = elapsed.as_secs();
+    println!("Execution time: {}s", seconds);
+    if let Ok(bw) = bandwidth(cfg.read_bytes, seconds) {
+        println!("Average bandwidth: {}", bw);
     }
 
     Ok(())
