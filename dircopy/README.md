@@ -25,6 +25,22 @@ Options:
   -V, --version                              Print version
 ```
 
+Windows example; copying `2.4 TiB` to a `271 MBps` destination disk
+in `2 hrs 44 min`, reaching `266.553 MB/s`
+(`98.4%` of maximal theoretical utilization):
+
+`dircopy-v0.0.0-37-g6144bc7-dirty-x86_64-pc-windows-gnu.exe -i PATH_NAS -o PATH_HDD`
+
+``` plain
+Block size: 131072
+Queue size: 10
+Overwite policy: default
+Writing SHA256 sums to: PATH_HDD\shasum.2025-04-12.17.39.35.txt
+2TiB 389GiB 550MiB | 266.553 MB/s | 1384 files
+Execution time: 9819s
+Average bandwidth: 266.553 MB/s
+```
+
 ## Performance Tuning
 
 ### Linux Subsystem for Windows (WSL) considerations
@@ -43,19 +59,26 @@ great when testing on my machine.
 
 _Example performance observed with these defaults:_
 
-**Toshiba MG10AFA22TE Series SATA 271 MBps (512 MB cache)**
-* `195.027 MB/s` observed when copying from SSD to HDD,
+**Toshiba MG10AFA22TE Series SATA HDD 271 MBps (512 MB cache)**
+* `266.553 MB/s` observed when copying from 10GbE SSD RAID NAS
+  over USB 3.1 (Gen 2) USB-C 10Gbit/s RaidSonic
+  ICY BOX IB-377-C31 enclosure.
+  I.e. destination drive can reach `98.4%` of theoretical max
+  utilization if source drive is very fast.
+* `195.027 MB/s` observed when copying from internal SSD
+  (Samsung EVO 870 EVO 4TB SATA) to HDD,
   over an USB 3.1 (Gen 2) USB-C 10Gbit/s RaidSonic
   ICY BOX IB-377-C31 enclosure.
-* `189.559 MB/s` observed when copying from SSD to HDD,
-   over an old USB -> SATA adapter
-   (identifying itself as SCSI disk device).
+* `189.559 MB/s` observed when copying from internal SSD
+  (Samsung EVO 870 EVO 4TB SATA) to HDD,
+  over an old USB -> SATA adapter
+  (identifying itself as SCSI disk device).
 
 **Samsung SSD EVO 970 Plus 1TB NVME**
 * `965.849 MB/s` observed when copying between directories on same disk.
 * `1.844 GB/s` occassionally observed...? (windows caching read-side, maybe).
 
-**Samsung EVO 870 EVO 4TB**
+**Samsung EVO 870 EVO 4TB SATA**
 * `471.692 MB/s` observed when copying between directories on same disk.
 
 ### Queue size
