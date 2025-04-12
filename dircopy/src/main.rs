@@ -1,17 +1,17 @@
 use std::fs;
 use std::fs::File;
 use std::fs::OpenOptions;
+use std::io;
 use std::io::IsTerminal;
 use std::io::Read;
 use std::io::Write;
 use std::sync::mpsc::sync_channel;
-use std::time::Instant;
 use std::thread;
-use std::io;
+use std::time::Instant;
 
 use chrono::prelude::*;
 use clap::Parser;
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -33,11 +33,11 @@ struct Args {
 }
 
 struct Configuration {
-    queue_size : usize,
-    block_size : usize,
-    read_bytes : usize,
-    read_files : usize,
-    debug : bool,
+    queue_size: usize,
+    block_size: usize,
+    read_bytes: usize,
+    read_files: usize,
+    debug: bool,
     start_of_copying: Instant,
     last_update: Instant,
     overwrite_policy: OverwritePolicy,
@@ -45,10 +45,10 @@ struct Configuration {
 
 impl Configuration {
     fn emit_debug_message(&mut self) -> bool {
-        if ! self.debug {
+        if !self.debug {
             return false;
         }
-        let update = self.last_update.elapsed().as_secs() > 3 ;
+        let update = self.last_update.elapsed().as_secs() > 3;
         if update {
             self.last_update = Instant::now();
         }
@@ -56,20 +56,19 @@ impl Configuration {
     }
 
     fn debug_message(&self) -> String {
-        let suf: Vec<&str> = vec!["B", "KiB", "MiB", "GiB", "TiB", "PiB" ];
-        let mut size : usize = self.read_bytes;
-        let mut vec : Vec<usize> = Vec::new();
+        let suf: Vec<&str> = vec!["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
+        let mut size: usize = self.read_bytes;
+        let mut vec: Vec<usize> = Vec::new();
         if size == 0 {
             return "".to_string();
-        }
-        else {
+        } else {
             while size > 0 {
                 let reminder = size % 1024;
                 size = size / 1024;
                 vec.push(reminder);
             }
         }
-        let mut result : String = "\r".to_string();
+        let mut result: String = "\r".to_string();
         let mut max = 3;
         for i in (0..vec.len()).rev() {
             let reminder = vec[i];
@@ -80,7 +79,7 @@ impl Configuration {
             if i < suf.len() {
                 s = suf[i];
             }
-            let tmp : String = format!("{}{} ", reminder, s);
+            let tmp: String = format!("{}{} ", reminder, s);
             result = result + &tmp;
             max = max - 1;
             if max == 0 {
@@ -92,7 +91,7 @@ impl Configuration {
             result = result + "| " + &bw;
         }
 
-        let tmp : String = format!(" | {} files      ", self.read_files);
+        let tmp: String = format!(" | {} files      ", self.read_files);
         result = result + &tmp;
 
         return result;
@@ -107,7 +106,7 @@ enum Message {
 
 enum StatusMessage {
     StatusIncBlock(usize),
-    StatusDone
+    StatusDone,
 }
 
 trait OverwritePolicyTrait {
@@ -151,9 +150,13 @@ impl OverwritePolicyTrait for OverwritePolicy {
     }
 }
 
-fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::PathBuf) -> Result<String, io::Error> {
-    let block_size : usize = cfg.block_size;
-    let queue_size : usize = cfg.queue_size;
+fn copy(
+    cfg: &mut Configuration,
+    input: std::path::PathBuf,
+    output: std::path::PathBuf,
+) -> Result<String, io::Error> {
+    let block_size: usize = cfg.block_size;
+    let queue_size: usize = cfg.queue_size;
 
     let mut fi = File::open(input)?;
     let mut fo = File::create(output)?;
@@ -189,14 +192,14 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
             if let Err(e) = read_tx.send(Message::Error) {
                 eprintln!("Error: {}", e);
             }
-            return ;
+            return;
         }
         if let Err(e) = read_tx.send(Message::Done) {
             eprintln!("Error: {}", e);
         }
     });
 
-    let router_thread = thread::spawn( move || {
+    let router_thread = thread::spawn(move || {
         let mut err = false;
         loop {
             match read_rx.recv() {
@@ -237,8 +240,7 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
             if let Err(e) = file_write_tx.send(Message::Error) {
                 eprintln!("Error: {}", e);
             }
-        }
-        else {
+        } else {
             if let Err(e) = sha_tx.send(Message::Done) {
                 eprintln!("Error: {}", e);
             }
@@ -251,7 +253,7 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
         }
     });
 
-    let sha_thread = thread::spawn( move || -> Result<String,()> {
+    let sha_thread = thread::spawn(move || -> Result<String, ()> {
         let mut h1 = Sha256::new();
         let mut incomplete = true;
         loop {
@@ -280,25 +282,23 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
         return Ok(strdigest);
     });
 
-    let file_write_thread = thread::spawn( move || {
-        loop {
-            match file_write_rx.recv() {
-                Ok(Message::Block(block)) => {
-                    if let Err(e) = fo.write_all(&block) {
-                        eprintln!("Error T-FW: {}", e);
-                        break;
-                    }
-                }
-                Ok(Message::Error) => {
-                    break;
-                }
-                Ok(Message::Done) => {
-                    break;
-                }
-                Err(e) => {
+    let file_write_thread = thread::spawn(move || loop {
+        match file_write_rx.recv() {
+            Ok(Message::Block(block)) => {
+                if let Err(e) = fo.write_all(&block) {
                     eprintln!("Error T-FW: {}", e);
                     break;
                 }
+            }
+            Ok(Message::Error) => {
+                break;
+            }
+            Ok(Message::Done) => {
+                break;
+            }
+            Err(e) => {
+                eprintln!("Error T-FW: {}", e);
+                break;
             }
         }
     });
@@ -308,7 +308,7 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
         match status_rx.recv() {
             Ok(StatusMessage::StatusDone) => {
                 break;
-            },
+            }
             Ok(StatusMessage::StatusIncBlock(u)) => {
                 cfg.read_bytes = cfg.read_bytes + u;
 
@@ -317,15 +317,15 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
                     let _ = stderr.write(debug_msg.as_bytes());
                     let _ = stderr.flush();
                 }
-            },
-            Err( e ) => {
+            }
+            Err(e) => {
                 eprintln!("Error status loop: {}", e);
             }
         }
     }
 
     let mut failed = true;
-    let mut result : String = "".to_string();
+    let mut result: String = "".to_string();
 
     if let Err(_) = read_thread.join() {
         panic!("Failure to join read thread");
@@ -337,7 +337,7 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
         panic!("Failure to join file write thread");
     }
 
-    let sha_result: Result<String,()>;
+    let sha_result: Result<String, ()>;
     match sha_thread.join() {
         Ok(s) => {
             sha_result = s;
@@ -349,8 +349,7 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
             if s.len() == 64 {
                 result = s;
                 failed = false;
-            }
-            else {
+            } else {
                 eprintln!("Bad SHA-256 received: '{}'", s);
             }
         }
@@ -368,11 +367,11 @@ fn copy(cfg: &mut Configuration, input: std::path::PathBuf, output: std::path::P
     Ok(result)
 }
 
-
 fn copy_directory(
     cfg: &mut Configuration,
     input: std::path::PathBuf,
-    output: std::path::PathBuf) -> io::Result<()> {
+    output: std::path::PathBuf,
+) -> io::Result<()> {
     let rel = std::path::PathBuf::new();
 
     let now = Local::now();
@@ -388,7 +387,7 @@ fn copy_directory(
     match foptions.open(&path_shasum) {
         Ok(file) => {
             shasum_file = file;
-        },
+        }
         Err(e) => {
             return Err(e);
         }
@@ -404,15 +403,15 @@ fn copy_directory(
     }
 
     return result;
-
 }
 
 fn copy_dir(
     cfg: &mut Configuration,
     shasum_file: &mut std::fs::File,
     input: std::path::PathBuf,
-    rel:  std::path::PathBuf,
-    output: std::path::PathBuf) -> io::Result<()> {
+    rel: std::path::PathBuf,
+    output: std::path::PathBuf,
+) -> io::Result<()> {
     for entry in fs::read_dir(input)? {
         let entry = entry?;
         let path = entry.path();
@@ -422,7 +421,7 @@ fn copy_dir(
             Some(s) => {
                 output_path.push(s);
                 rel2.push(s);
-            },
+            }
             None => continue, //TODO error handling
         }
         if path.is_dir() {
@@ -430,20 +429,22 @@ fn copy_dir(
                 fs::create_dir(output_path.clone())?;
             }
             copy_dir(cfg, shasum_file, path, rel2, output_path)?;
-        }
-        else if path.is_file() {
+        } else if path.is_file() {
             if output_path.exists() {
                 let old_metadata = entry.metadata()?;
                 let new_metadata = fs::metadata(output_path.clone())?;
-                if ! cfg.overwrite_policy.do_overwrite(&old_metadata, &new_metadata) {
+                if !cfg
+                    .overwrite_policy
+                    .do_overwrite(&old_metadata, &new_metadata)
+                {
                     continue;
                 }
             }
             match copy(cfg, path, output_path) {
                 Ok(s) => {
                     let string = format!("{}  {}\n", s.to_lowercase(), rel2.display());
-                    let _ = shasum_file.write_all( string.as_bytes() );
-                },
+                    let _ = shasum_file.write_all(string.as_bytes());
+                }
                 Err(_s) => {
                     return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
                 }
@@ -453,9 +454,9 @@ fn copy_dir(
     Ok(())
 }
 
-fn s2i(string : String) -> usize {
-    let mut prefix : usize = 0;
-    let mut exponent : usize = 1;
+fn s2i(string: String) -> usize {
+    let mut prefix: usize = 0;
+    let mut exponent: usize = 1;
     for c in string.chars() {
         match c {
             'K' => exponent = 1024,
@@ -471,12 +472,12 @@ fn s2i(string : String) -> usize {
             '7' => prefix = prefix * 10 + 7,
             '8' => prefix = prefix * 10 + 8,
             '9' => prefix = prefix * 10 + 9,
-            _ => eprintln!("Unable to parse: {}", string)
+            _ => eprintln!("Unable to parse: {}", string),
         }
     }
     let result = prefix * exponent;
     if result < 1 {
-       eprintln!("Unable to parse: {}", string)
+        eprintln!("Unable to parse: {}", string)
     }
     return result;
 }
@@ -486,7 +487,7 @@ fn bandwidth(read_bytes: usize, seconds: u64) -> Result<String, ()> {
         return Err(());
     }
     let mut rb = (read_bytes as f64) / (seconds as f64);
-    let sufixes: Vec<&str> = vec!["B", "KB", "MB", "GB", "TB", "PB" ];
+    let sufixes: Vec<&str> = vec!["B", "KB", "MB", "GB", "TB", "PB"];
     let mut suff = "";
     for s in sufixes {
         suff = s;
@@ -503,7 +504,7 @@ fn main() -> std::io::Result<()> {
     let queue_size = args.queue_size;
     let block_size = s2i(args.block_size);
 
-    let overwrite_policy : OverwritePolicy;
+    let overwrite_policy: OverwritePolicy;
     match args.overwrite_policy.as_str() {
         "default" => {
             overwrite_policy = OverwritePolicy::OverwritePolicyDefault;
@@ -531,14 +532,14 @@ fn main() -> std::io::Result<()> {
         overwrite_policy: overwrite_policy,
     };
 
-    if ! args.input.is_dir() {
+    if !args.input.is_dir() {
         eprintln!("Directory {} is not a directory", args.input.display());
-        return Ok(())
+        return Ok(());
     }
 
-    if ! args.output.is_dir() {
+    if !args.output.is_dir() {
         eprintln!("Directory {} is not a directory", args.output.display());
-        return Ok(())
+        return Ok(());
     }
     println!("Block size: {}", block_size);
     println!("Queue size: {}", queue_size);
