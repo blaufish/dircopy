@@ -3,8 +3,9 @@ FROM ubuntu:noble
 RUN \
  apt update -y && \
  apt install -y \
-   llvm \
    binutils-mingw-w64-x86-64 \
+   build-essential \
+   llvm \
    mingw-w64 \
    rustup
 
@@ -12,8 +13,6 @@ RUN \
  rustup default stable && \
  rustup target add x86_64-pc-windows-gnu
 
-RUN \
- apt install build-essential -y
 
 COPY \
  Cargo.lock \
