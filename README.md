@@ -6,87 +6,13 @@ Beware: everything here is super duper ultra beta alpha quality.
 
 ## Directory Copy with SHA256
 
+Copies files fast.
+Generates sha256sum files.
+Multi-threaded.
+
 Files:
+* [dircopy/README.md](dircopy/README.md)
 * [dircopy/src/main.rs](dircopy/src/main.rs)
-
-Usage:
-
-`./dircopy/target/release/dircopy -h`
-
-``` plain
-Usage: dircopy [OPTIONS] --input <INPUT> --output <OUTPUT>
-
-Options:
-  -i, --input <INPUT>
-  -o, --output <OUTPUT>
-      --queue-size <QUEUE_SIZE>              [default: 10]
-      --block-size <BLOCK_SIZE>              [default: 1M]
-      --overwrite-policy <OVERWRITE_POLICY>  [default: default]
-  -h, --help                                 Print help
-  -V, --version                              Print version
-```
-
-Tuning parameters:
-
-* `--queue-size <QUEUE_SIZE>` controls how many blocks
-  can be queued up between threads.
-  A small number should suffice.
-* `--block-size <BLOCK_SIZE>` controls size of blocks,
-  i.e. size of disk read, writes.
-  * A few megabytes, e.g. `1M` to `8M` should suffice for most users.
-  * Too small values, such as a few `1K`, seems to hurt performance.
-  * Too large values, such as `1G`, hurts performance significantly.
-
-Dangerous parameters:
-
-* `--overwrite-policy <OVERWRITE_POLICY>`
-  * `default` does a best effort in attempting to avoid accidental
-    overwrites.
-    It does perform sanity checks on file length etc.
-  * `never` is safest mode.
-    Files in output directory will never be overwritten.
-    It is 100% impossible to resume disk copying...
-  * `always` is **danger mode**.
-    Files will always be overwritten.
-
-`./dircopy/target/release/dircopy -i /dirA -o /dirB`
-
-
-
-``` bash
-time \
-./dircopy/target/release/dircopy \
-  -i /dirA \
-  -o /dirB \
-  --block-size 4M \
-  --overwrite-policy always \
-  --queue-size 30
-
-# Block size: 4194304
-# Queue size: 30
-# Overwite policy: always
-# Writing SHA256 sums to: /dirB/shasum.2025-04-09.17.10.35.txt
-# 32G 178M 920 files
-#
-# real    3m36.647s
-# user    0m24.157s
-# sys     0m12.799s
-```
-
-Thread design:
-
-`main` thread controls and normal non-error screen output.
-Additional threads are:
-
-* `read_thread`: reads from disk, and put onto queues.
-* `router_thread`: puts data onto queus for; \
-  `sha_thread`, `file_write_thread` and `main`.
-* `sha_thread` calculates `SHA256`.
-* `file_write_thread` writes to disk.
-
-Between each thread there are up to `<QUEUE_SIZE>`
-blocks in buffers to reduce chance of unecessary stalls
-in the copy/hash pipeline :-)
 
 ## File Copy
 

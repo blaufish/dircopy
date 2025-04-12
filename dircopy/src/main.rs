@@ -25,7 +25,7 @@ struct Args {
     #[arg(long, default_value_t = 10)]
     queue_size: usize,
 
-    #[arg(long, default_value = "1M")]
+    #[arg(long, default_value = "128K")]
     block_size: String,
 
     #[arg(long, default_value = "default")]
