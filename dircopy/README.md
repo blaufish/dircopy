@@ -44,6 +44,9 @@ great when testing on my machine.
 _Example performance observed with these defaults:_
 
 **Toshiba MG10AFA22TE Series SATA 271 MBps (512 MB cache)**
+* `195.027 MB/s` observed when copying from SSD to HDD,
+  over an USB 3.1 (Gen 2) USB-C 10Gbit/s RaidSonic
+  ICY BOX IB-377-C31 enclosure.
 * `189.559 MB/s` observed when copying from SSD to HDD,
    over an old USB -> SATA adapter
    (identifying itself as SCSI disk device).
