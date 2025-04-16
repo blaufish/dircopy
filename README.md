@@ -50,6 +50,10 @@ Execution time: 9819s
 Average bandwidth: 266.553 MB/s
 ```
 
+`NOTE`:
+`dircopy` is forked from [blaufish/rust-playground](https://github.com/blaufish/rust-playground)
+where practice learning Rust.
+
 ## Performance Tuning
 
 Defaults provided, block size `128K` and queue size `10` appears

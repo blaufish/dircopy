@@ -1,4 +1,5 @@
 .*.sw?
+*.md.bak
 .test/**
 target/**
 out/**
