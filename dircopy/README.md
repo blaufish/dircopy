@@ -1,11 +1,19 @@
 # Directory Copy with SHA256
 
+Tool for copying large sets of media files, e.g. terabytes.
+Generates SHA256 sum files,
+enabling verification that data was transmitted successfully.
+
 Files:
 * [src/main.rs](src/main.rs)
-* [docker-build.sh](docker-build.sh)
+* [build-with-podman.sh](build-with-podman.sh)
   * builds project using Dockerfile/Podman.
   * exports standard Linux/WSL binary.
   * exports Windows cross compiled binary.
+* [build-test.sh](build-test.sh)
+  generates random files,
+  copies files,
+  verifies source and destination match sha256sums.
 * [Dockerfile](Dockerfile) - building froms scratch
 
 Usage:

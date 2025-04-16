@@ -1,4 +1,5 @@
 .*.sw?
+dircopy/.test/
 dircopy/target/
 filecopy/target/
 gentestfile/target/
