@@ -1,7 +1,4 @@
 .*.sw?
-dircopy/.test/
-dircopy/target/
-filecopy/target/
-gentestfile/target/
-hello_world/target/
-out/
+.test/**
+target/**
+out/**

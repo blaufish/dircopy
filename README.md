@@ -1,116 +1,102 @@
-# Rust Playground
+# Directory Copy with SHA256
 
-I'm just having fun learning rust, nothing serious here so far!
-
-Beware: everything here is super duper ultra beta alpha quality.
-
-## Directory Copy with SHA256
-
-Copies files fast.
-Generates sha256sum files.
-Multi-threaded.
+Tool for copying large sets of media files, e.g. terabytes.
+Generates SHA256 sum files,
+enabling verification that data was transmitted successfully.
 
 Files:
-* [dircopy/README.md](dircopy/README.md)
-* [dircopy/src/main.rs](dircopy/src/main.rs)
-
-## File Copy
-
-Just testing various ways to copy files and benchmarking if anything matters.
-
-* [filecopy/src/main.rs](filecopy/src/main.rs)
-* [test.filecopy.sh](test.filecopy.sh)
-
-System copy is a bit faster than copying through rust, but not that much.
-
-``` plain
-Cleaned files
-+ ./filecopy/target/release/filecopy -i out/gen/sha/foo.1G.bin -o out/copy/foo.1G.bin.sha256mt -m sha256mt
-Error: receiving on a closed channel
-SHA: D87E1A61824F2C662FD882EA46771FFFCAE1550991F3E1A4D20F0D3853B1A902
-real    0m1.373s
-user    0m0.632s
-sys     0m1.638s
-+ ./filecopy/target/release/filecopy -i out/gen/sha/foo.1G.bin -o out/copy/foo.1G.bin.basic -m basic
-
-real    0m1.093s
-user    0m0.000s
-sys     0m1.093s
-+ ./filecopy/target/release/filecopy -i out/gen/sha/foo.1G.bin -o out/copy/foo.1G.bin.own -m own
-
-real    0m1.148s
-user    0m0.010s
-sys     0m1.138s
-+ ./filecopy/target/release/filecopy -i out/gen/sha/foo.1G.bin -o out/copy/foo.1G.bin.sha256 -m sha256
-SHA: D87E1A61824F2C662FD882EA46771FFFCAE1550991F3E1A4D20F0D3853B1A902
-real    0m1.656s
-user    0m0.512s
-sys     0m1.144s
-+ cp -- out/gen/sha/foo.1G.bin out/copy/foo.1G.bin.system
-
-real    0m1.077s
-user    0m0.000s
-sys     0m1.062s
-d87e1a61824f2c662fd882ea46771fffcae1550991f3e1a4d20f0d3853b1a902  out/gen/sha/foo.1G.bin
-d87e1a61824f2c662fd882ea46771fffcae1550991f3e1a4d20f0d3853b1a902  out/copy/foo.1G.bin.basic
-d87e1a61824f2c662fd882ea46771fffcae1550991f3e1a4d20f0d3853b1a902  out/copy/foo.1G.bin.own
-d87e1a61824f2c662fd882ea46771fffcae1550991f3e1a4d20f0d3853b1a902  out/copy/foo.1G.bin.sha256
-d87e1a61824f2c662fd882ea46771fffcae1550991f3e1a4d20f0d3853b1a902  out/copy/foo.1G.bin.sha256mt
-d87e1a61824f2c662fd882ea46771fffcae1550991f3e1a4d20f0d3853b1a902  out/copy/foo.1G.bin.system
-```
-
-## Generate Test Files
-
-Generate test files.
-
-[gentestfile/src/main.rs](gentestfile/src/main.rs)
+* [src/main.rs](src/main.rs)
+* [build-with-podman.sh](build-with-podman.sh)
+  * builds project using Dockerfile/Podman.
+  * exports standard Linux/WSL binary.
+  * exports Windows cross compiled binary.
+* [build-test.sh](build-test.sh)
+  generates random files,
+  copies files,
+  verifies source and destination match sha256sums.
+* [Dockerfile](Dockerfile)
+* [performance.md](performance.md)
 
 Usage:
-* `./gentestfile --help`
-* `./gentestfile -o file --mode sha256 --length 512`
-* `./gentestfile -o file --mode aes-ctr --length 512`
+
+`./dircopy/target/release/dircopy -h`
 
 ``` plain
-Usage: gentestfile --output <OUTPUT> --seed <SEED> --length <LENGTH> --mode <MODE>
+Usage: dircopy [OPTIONS] --input <INPUT> --output <OUTPUT>
 
 Options:
+  -i, --input <INPUT>
   -o, --output <OUTPUT>
-  -s, --seed <SEED>
-  -l, --length <LENGTH>
-  -m, --mode <MODE>      [possible values: aes-ctr, sha256]
-  -h, --help             Print help
-  -V, --version          Print version
+      --queue-size <QUEUE_SIZE>              [default: 10]
+      --block-size <BLOCK_SIZE>              [default: 128K]
+      --overwrite-policy <OVERWRITE_POLICY>  [default: default]
+  -h, --help                                 Print help
+  -V, --version                              Print version
 ```
 
-Length reflects the number of bytes (not bits...) of output generated.
+Windows example; copying `2.4 TiB` to a `271 MBps` destination disk
+in `2 hrs 44 min`, reaching `266.553 MB/s`
+(`98.4%` of maximal theoretical utilization):
 
-SHA256 algorithm pseduo-code:
+`dircopy-v0.0.0-37-g6144bc7-dirty-x86_64-pc-windows-gnu.exe -i PATH_NAS -o PATH_HDD`
 
-``` python
-s = SHA256( seed )
-
-while True:
-  s = SHA256( s );
-  copy(s, out);
+``` plain
+Block size: 131072
+Queue size: 10
+Overwite policy: default
+Writing SHA256 sums to: PATH_HDD\shasum.2025-04-12.17.39.35.txt
+2TiB 389GiB 550MiB | 266.553 MB/s | 1384 files
+Execution time: 9819s
+Average bandwidth: 266.553 MB/s
 ```
 
-AES-CTR algorithm pseudo-code:
+## Performance Tuning
 
-``` python
-key, ctr = SHA256( seed )
+Defaults provided, block size `128K` and queue size `10` appears
+great when testing on my machine.
 
-while True:
-  s = AES128_Encrypt(key, ctr)
-  ctr = ctr + 1
-  copy(s, out);
-}
-```
+WSL hurts Windows performance significantly, avoid.
 
-_AES is potentially faster due to CPU optimizations._
+See [performance.md](performance.md) for more details.
 
-## Hello World
+## Dangerous parameters
 
-A very simple test application...
+`--overwrite-policy <OVERWRITE_POLICY>` affects how likely the tool
+is to overwrite existing files.
 
-[hello\_world/src/main.rs](hello_world/src/main.rs)
+* `default` does a best effort in attempting to avoid accidental
+  overwrites.
+  It does perform sanity checks on file length etc.
+* `never` is safest mode.
+  Files in output directory will never be overwritten.
+  It is 100% impossible to overwrite files with this strategy...
+* `always` is **danger mode**.
+  Files will always be overwritten.
+  Probably only useful for benchmarking tool etc.
 
+## Thread design
+
+`main` thread:
+* command and controls
+* receiving statistic updates from `router_thread`.
+* normal non-error screen output.
+* writing `sha256sum.txt` files to disk.
+
+Additional threads are:
+
+`read_thread`:
+* reads from disk
+* data onto queues.
+
+`router_thread` puts data onto queues for downstream threads:
+* `sha_thread`
+* `file_write_thread`
+* `main`
+
+`sha_thread`: calculates `SHA256`.
+
+`file_write_thread` writes data to destination.
+
+Between each thread there are up to `<QUEUE_SIZE>`
+blocks in buffers to reduce chance of unecessary stalls
+in the copy/hash pipeline :-)
