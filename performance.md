@@ -35,10 +35,10 @@ Copying files within a drive:
 
 Notably the outliers with extreme performance should be ignored :)
 
-## Benchmarking things is hard
+### Benchmarking is hard
 
 Extreme speed-ups observed on re-running internal file copy tests,
-that simply don't make sense.
+that simply do not make sense.
 
 Caching is interfering with benchmarks if benchmarking with:
 * 64GiB of system RAM,
