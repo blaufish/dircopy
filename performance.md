@@ -14,6 +14,8 @@ If performance is of the essence, avoid WSL.
 Defaults provided, block size `128K` and queue size `10` appears
 great when testing on my machine.
 
+### External disk-to-disk tests
+
 Copies from one drive to another:
 
 | Source               | Destination                              | Performance          |
@@ -22,12 +24,47 @@ Copies from one drive to another:
 | Samsung EVO 870 SATA | Toshiba MG10AFA22TE over IB-377-C31      | 195.027 MB/s (72%)   |
 | Samsung EVO 870 SATA | Toshiba MG10AFA22TE over old USB adapter | 189.559 MB/s (70%)   |
 
+### Local tests
+
 Copying files within a drive:
 
-| Drive                             | Performance               |
-| --------------------------------- | ------------------------- |
-| Samsung EVO 970 Plus 1TB SSD NVME | 965.849 MB/s - 1.844 GB/s |
-| Samsung EVO 870 EVO 4TB SSD SATA  | 471.692 MB/s              |
+| Drive                             | Performance                     |
+| --------------------------------- | :------------------------------ |
+| Samsung EVO 970 Plus 1TB SSD NVME | 965.849 MB/s (up to 1.844 GB/s) |
+| Samsung EVO 870 EVO 4TB SSD SATA  | 235.847 MB/s (up to 482.9 MB/s) |
+
+Notably the outliers with extreme performance should be ignored :)
+
+## Benchmarking things is hard
+
+Extreme speed-ups observed on re-running internal file copy tests,
+that simply don't make sense.
+
+Caching is interfering with benchmarks if benchmarking with:
+* 64GiB of system RAM,
+* 18GiB of test files,
+  "impossible" performance is observed.
+* 147GiB of test files,
+  "impossible" performance is no longer observed.
+* i.e. benchmarks can yield impossible results when file sizes are
+  small enough for test files to be cached in computer RAM...
+
+Example: SATA-II is a 600 MB/s;
+* 235.847 MB/s makes sense for SSD read/write.
+  `2 * 235.847 = 471.7` or **79%** of theoretical max.
+* _For reference, Windows own file copy dialog average 200 - 220 MB/s
+  when copying large files...  which makes sense, _
+  `210*2/600 = 70%` _is decent!_
+* 482.9 MB/s read and write makes no sense.
+  `482.9*2/600 = 161%` ...
+  Clearly **161%** performance is impossible,
+  RAM caching issue.
+* Impossible performance not reproducible when file sizes are
+  significantly larger than system RAM.
+
+### Additional details
+
+Drives used in test and additional details;
 
 **Toshiba MG10AFA22TE Series SATA HDD 271 MBps (512 MB cache)**
 * `266.553 MB/s` observed when copying from 10GbE SSD RAID NAS
@@ -49,7 +86,12 @@ Copying files within a drive:
 * `1.844 GB/s` occassionally observed...? (windows caching read-side, maybe).
 
 **Samsung EVO 870 EVO 4TB SATA**
-* `471.692 MB/s` observed when copying between directories on same disk.
+* `266.553 MB/s` observed when copying files.
+  This makes sense as reading and writing at this speed would be `533 MB/s`
+  or **89%** of SATA-II theoretical max of 600 MB/s.
+* `471.692 MB/s`, `482.924 MB/s`
+  observed when copying between directories on same disk.
+  These values are nonsensical, Windows caching read-side maybe?
 
 ## Queue size
 
@@ -76,4 +118,4 @@ disk read, writes.
 * Too large values, such as `1G`, hurts performance significantly.
 
 Resonable values appears optimal for keeping source & destination
-working well. HDD sound less when operating, and succeeds faster. 
+working well. HDD sound less when operating, and succeeds faster.
