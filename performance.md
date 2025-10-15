@@ -43,7 +43,7 @@ Notes:
 * `1`: Performance compared to MG10AFA22TE rated max of 271 MBps.
 * `2`: Performance compared to Kingston SDR2V6/256GB advertised, rated max of 280 MB/s read.
 * `3`: Performance compared to Kingston SDR2V6/256GB advertised, rated max of 150 MB/s write.
-* '4': Performance compared to USB 3.0 theoretical max of 500 MB/s.
+* `4`: Performance compared to USB 3.0 theoretical max of 500 MB/s.
        5Gbps is 4Gbps after 8b/10b decoding overhead.
        4Gbps is 500 MB/s.
 
