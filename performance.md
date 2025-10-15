@@ -34,6 +34,7 @@ Copies from one drive to another:
 | Samsung EVO 870 SATA   | Toshiba MG10AFA22TE over old USB adapter | 189.559 MB/s | 70% `1`   |
 | Kingston SDR2V6/256GB  | Samsung EVO 870 EVO 4TB SSD SATA         | 295.218 MB/s | 105% `2`  |
 | Samsung EVO 870 SATA   | Kingston SDR2V6/256GB                    | 194.394 MB/s | 130% `3`  |
+| Samsung EVO 870 SATA over Atomos/JMicron USB 3.0 | Samsung SSD 990 PRO 4TB | 371 MB/s | 74% `4` |
 
 Notes:
 * Listed performance is from very large test cases,
@@ -42,6 +43,9 @@ Notes:
 * `1`: Performance compared to MG10AFA22TE rated max of 271 MBps.
 * `2`: Performance compared to Kingston SDR2V6/256GB advertised, rated max of 280 MB/s read.
 * `3`: Performance compared to Kingston SDR2V6/256GB advertised, rated max of 150 MB/s write.
+* '4': Performance compared to USB 3.0 theoretical max of 500 MB/s.
+       5Gbps is 4Gbps after 8b/10b decoding overhead.
+       4Gbps is 500 MB/s.
 
 ### Local tests
 
@@ -111,6 +115,14 @@ Drives used in test and additional details;
 * `471.692 MB/s`, `482.924 MB/s`
   observed when copying between directories on same disk.
   These values are nonsensical, Windows caching read-side maybe?
+
+**Samsung EVO 870 EVO 4TB SATA with Atomos/JMicron USB 3.0**
+* Atomos/JMicron USB 3.0 device.
+  USB 3.0 theoretical max speed is 500 MB/s.
+* `371 MB/s` observed copying files to **Samsung SSD 990 PRO 4TB**.
+  (3TiB 567GiB 428MiB,
+  370.935 MB/s, 4079 files, Execution time: 10535s,
+  Average bandwidth: 370.935 MB/s)
 
 **Kingston SDR2V6/256GB UHS-II Canvas React Plus 256GB up to 280MB/s**
 * Listed card performance:
