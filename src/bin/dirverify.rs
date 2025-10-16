@@ -80,8 +80,11 @@ fn main() -> ExitCode {
             if !name.ends_with(".txt") {
                 continue;
             }
-            //println!("... {}", name);
             names.push(name);
+        }
+        if names.len() == 0 {
+            eprintln!("Error: no shasum.*.txt files in {}", dir.display());
+            return ExitCode::from(1);
         }
         sha_files.push((dir, names));
     }
