@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
 //use std::io::IsTerminal;
-//use std::io::Read;
+use std::io::Read;
 //use std::io::Write;
 //use std::sync::mpsc::sync_channel;
 //use std::thread;
@@ -15,7 +15,7 @@ use std::process::ExitCode;
 
 //use chrono::prelude::*;
 use clap::Parser;
-//use sha2::{Digest, Sha256};
+use sha2::{Digest, Sha256};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -37,6 +37,38 @@ fn parse_line(line: String) -> Result<(String, String), String> {
     Ok((hash.to_string(), filename.to_string()))
 }
 
+fn verify_file(file_path: std::path::PathBuf, hash: String) -> ExitCode {
+    let block_size: usize = 128 * 1024;
+    let mut file: File;
+    match File::open(&file_path) {
+        Ok(file_) => file = file_,
+        Err(e) => {
+            eprintln!(
+                "Unexpected error opening file {}: {}",
+                file_path.display(),
+                e
+            );
+            return ExitCode::from(3);
+        }
+    }
+    let mut h1 = Sha256::new();
+
+    let mut heap_buf: Vec<u8> = Vec::with_capacity(block_size);
+    heap_buf.resize(block_size, 0x00);
+
+    loop {
+        match file.read(&mut heap_buf[0..block_size]) {
+            Ok(0) => break,
+            Ok(n) => h1.update(&heap_buf[0..n]),
+            Err(e) => {
+                eprintln!("Error: {}: {}", file_path.display(), e);
+                break;
+            }
+        }
+    }
+    ExitCode::SUCCESS
+}
+
 fn verify_list(dir: &std::path::PathBuf, list: std::path::PathBuf) -> ExitCode {
     let file;
     match File::open(&list) {
@@ -55,6 +87,12 @@ fn verify_list(dir: &std::path::PathBuf, list: std::path::PathBuf) -> ExitCode {
                     Ok((hash, filename)) => {
                         println!("debug... hash: {}", hash);
                         println!("debug... filename: {}", filename);
+                        let mut file_path = dir.clone();
+                        file_path.push(filename);
+                        let e = verify_file(file_path, hash);
+                        if e != ExitCode::SUCCESS {
+                            return e;
+                        }
                     }
                     Err(e) => {
                         eprintln!("Error: {}", e);
