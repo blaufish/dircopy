@@ -1,7 +1,9 @@
 use std::fs;
-//use std::fs::File;
+use std::fs::File;
 //use std::fs::OpenOptions;
 //use std::io;
+use std::io::BufRead;
+use std::io::BufReader;
 //use std::io::IsTerminal;
 //use std::io::Read;
 //use std::io::Write;
@@ -19,7 +21,66 @@ use clap::Parser;
 #[command(version, about, long_about = None)]
 struct Args {
     dir: Vec<std::path::PathBuf>,
+}
 
+fn parse_line(line: String) -> Result<(String, String), String> {
+    if line.len() < 67 {
+        return Err(String::from("Too short"));
+    }
+    match &line[64..66] {
+        "  " => (),
+        _ => return Err(String::from("Expected 2 spaces")),
+    }
+    let hash = &line[..64];
+    let filename = &line[66..];
+
+    Ok((hash.to_string(), filename.to_string()))
+}
+
+fn verify_list(dir: &std::path::PathBuf, list: std::path::PathBuf) -> ExitCode {
+    let file;
+    match File::open(&list) {
+        Ok(f) => file = f,
+        Err(e) => {
+            eprintln!("Error opening {}: {}", list.display(), e);
+            return ExitCode::from(2);
+        }
+    }
+    let reader = BufReader::new(file);
+    for line_result in reader.lines() {
+        match line_result {
+            Ok(line) => {
+                println!("debug...{} {}", list.display(), line);
+                match parse_line(line) {
+                    Ok((hash, filename)) => {
+                        println!("debug... hash: {}", hash);
+                        println!("debug... filename: {}", filename);
+                    }
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        return ExitCode::from(2);
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Unexpected error processing {}: {}", list.display(), e);
+                return ExitCode::from(2);
+            }
+        }
+    }
+    ExitCode::SUCCESS
+}
+
+fn verify_all_lists(dir: &std::path::PathBuf, sha_files: Vec<String>) -> ExitCode {
+    for sha_file in sha_files {
+        let mut sha_file_pb = dir.clone();
+        sha_file_pb.push(sha_file);
+        let e = verify_list(dir, sha_file_pb);
+        if e != ExitCode::SUCCESS {
+            return e;
+        }
+    }
+    ExitCode::SUCCESS
 }
 
 fn main() -> ExitCode {
@@ -29,7 +90,7 @@ fn main() -> ExitCode {
         eprintln!("Error: No directory specified");
     }
 
-    let mut sha_files : Vec<(std::path::PathBuf, Vec<String>)> = Vec::new();
+    let mut sha_files: Vec<(std::path::PathBuf, Vec<String>)> = Vec::new();
     for dir in args.dir {
         if !dir.is_dir() {
             eprintln!("Error: Not a directory {}", dir.display());
@@ -45,7 +106,7 @@ fn main() -> ExitCode {
                 return ExitCode::from(1);
             }
         }
-        let mut names : Vec<String> = Vec::new();
+        let mut names: Vec<String> = Vec::new();
         for entry in read_dir {
             let name;
             match entry {
@@ -90,11 +151,14 @@ fn main() -> ExitCode {
     }
 
     for (dir, names) in sha_files {
-        for name in names {
+        for name in names.clone() {
             println!("Found files: {} - {}", dir.display(), name);
+        }
+        let exit_code = verify_all_lists(&dir, names);
+        if exit_code != ExitCode::SUCCESS {
+            return exit_code;
         }
     }
 
     ExitCode::SUCCESS
 }
-
