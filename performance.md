@@ -1,4 +1,4 @@
-# Performance tuning
+# Performance
 
 All performance tests are performed with few very large files,
 i.e. simulating transfer of large media files.
@@ -18,12 +18,39 @@ If performance is of the essence, avoid WSL.
 tool appears to perform on par with Robocopy and Windows file copy
 dialogs, or a slight percentage faster.
 
-## Performance with provided defaults
+## Performance tuning parameters
 
 Defaults provided, block size `128K` and queue size `10` appears
 great when testing on my machine.
 
-### External disk-to-disk tests
+### Queue size
+
+`--queue-size <QUEUE_SIZE>` controls how many blocks
+can be queued up between threads.
+
+A small number should suffice.
+`10` (default) appears generally good.
+
+Changing values does **not** appear to have meaningful impmact.
+* Minimal value `1` only appears to have marginal speed degradations,
+  if any.
+* `1000` does not provide any observable performance boost.
+
+### Block size
+
+`--block-size <BLOCK_SIZE>` controls size of blocks, i.e. size of
+disk read, writes.
+
+`128K` (Default) appears close to optimal.
+
+* Small buffers, e.g. `128K`, `1M` to `8M` should suffice for most users.
+* Too small values, such as `1K`, seems to hurt performance.
+* Too large values, such as `1G`, hurts performance significantly.
+
+Resonable values appears optimal for keeping source & destination
+working well. HDD sound less when operating, and succeeds faster.
+
+## External disk-to-disk tests
 
 Copies from one drive to another:
 
@@ -47,16 +74,26 @@ Notes:
        5Gbps is 4Gbps after 8b/10b decoding overhead.
        4Gbps is 500 MB/s.
 
-### Local tests
+## Internal SSD to SSD tests
+
+| Source              | Destination          | Performance |
+| ------------------- | -------------------- | :---------- |
+| Samsung 990 PRO 4TB | Samsung 9100 PRO 4TB | 1.813 GB/s  |
+
+## Internal SSD tests, copying files within one drive
 
 Copying files within a drive:
 
 | Drive                             | Performance  | Outliers (cached reads)  |
 | --------------------------------- | :----------- | :----------------------- |
+| Samsung 9100 PRO 4TB              | 1.384 GB/s   |                          |
 | Samsung EVO 970 Plus 1TB SSD NVME | 965.849 MB/s | up to 1.8 GB/s           |
 | Samsung EVO 870 EVO 4TB SSD SATA  | 235.847 MB/s | up to 482.9 MB/s         |
 
 Notably the outliers with extreme performance should be ignored :)
+
+Samsung 9100 PRO 4TB throttles under very large file copy operations,
+initial speeds are much better than average speeds.
 
 ### Benchmarking is hard
 
@@ -85,30 +122,42 @@ Example: SATA-II is a 600 MB/s;
 * Impossible performance not reproducible when file sizes are
   significantly larger than system RAM.
 
-### Additional details
-
-Drives used in test and additional details;
+### Toshiba MG10AFA22TE Benchmarks
 
 **Toshiba MG10AFA22TE Series SATA HDD 271 MBps (512 MB cache)**
+
+Used as destination, source NAS:
 * `266.553 MB/s` observed when copying from 10GbE SSD RAID NAS
   over USB 3.1 (Gen 2) USB-C 10Gbit/s RaidSonic
-  ICY BOX IB-377-C31 enclosure.
+  **ICY BOX IB-377-C31** enclosure.
   I.e. destination drive can reach `98.4%` of theoretical max
   utilization if source drive is very fast.
+
+Used as destination, source SSD:
 * `195.027 MB/s` observed when copying from internal SSD
   (Samsung EVO 870 EVO 4TB SATA) to HDD,
   over an USB 3.1 (Gen 2) USB-C 10Gbit/s RaidSonic
-  ICY BOX IB-377-C31 enclosure.
+  **ICY BOX IB-377-C31** enclosure.
+
+Used as destination, source SSD:
 * `189.559 MB/s` observed when copying from internal SSD
   (Samsung EVO 870 EVO 4TB SATA) to HDD,
   over an old USB -> SATA adapter
   (identifying itself as SCSI disk device).
 
+### Samsung SSD EVO 970 Plus 1TB NVME Benchmarks
+
 **Samsung SSD EVO 970 Plus 1TB NVME**
+
+Used as destionation and source:
 * `965.849 MB/s` observed when copying between directories on same disk.
 * `1.844 GB/s` occassionally observed...? (windows caching read-side, maybe).
 
+### Samsung EVO 870 EVO 4TB SATA Benchmarks
+
 **Samsung EVO 870 EVO 4TB SATA**
+
+Used as source and destination:
 * `266.553 MB/s` observed when copying files.
   This makes sense as reading and writing at this speed would be `533 MB/s`
   or **89%** of SATA-II theoretical max of 600 MB/s.
@@ -117,12 +166,25 @@ Drives used in test and additional details;
   These values are nonsensical, Windows caching read-side maybe?
 
 **Samsung EVO 870 EVO 4TB SATA with Atomos/JMicron USB 3.0**
-* Atomos/JMicron USB 3.0 device.
+used as source, destionation SSD:
+* **Atomos/JMicron USB 3.0** device.
   USB 3.0 theoretical max speed is 500 MB/s.
 * `371 MB/s` observed copying files to **Samsung SSD 990 PRO 4TB**.
   (3TiB 567GiB 428MiB,
   370.935 MB/s, 4079 files, Execution time: 10535s,
   Average bandwidth: 370.935 MB/s)
+
+### Samsung 9100 PRO 4TB benchmarks
+
+Used as source and destination:
+
+* Initial speed 2.4GB/s but then throttles heavily,
+  total avererage 1.38 GB/s...
+* 1TiB 495GiB 482MiB, 1.384 GB/s, 227 files
+* Execution time: 1179s
+* Average bandwidth: 1.384 GB/s
+
+### Kingston SDR2V6/256GB Benchmarks
 
 **Kingston SDR2V6/256GB UHS-II Canvas React Plus 256GB up to 280MB/s**
 * Listed card performance:
@@ -146,29 +208,9 @@ Drives used in test and additional details;
   performing, as wrong cable/port has insane impact with
   this card?...
 
-## Queue size
+### SSD to SSD tests
 
-`--queue-size <QUEUE_SIZE>` controls how many blocks
-can be queued up between threads.
-
-A small number should suffice.
-`10` (default) appears generally good.
-
-Changing values does **not** appear to have meaningful impmact.
-* Minimal value `1` only appears to have marginal speed degradations,
-  if any.
-* `1000` does not provide any observable performance boost.
-
-## Block size
-
-`--block-size <BLOCK_SIZE>` controls size of blocks, i.e. size of
-disk read, writes.
-
-`128K` (Default) appears close to optimal.
-
-* Small buffers, e.g. `128K`, `1M` to `8M` should suffice for most users.
-* Too small values, such as `1K`, seems to hurt performance.
-* Too large values, such as `1G`, hurts performance significantly.
-
-Resonable values appears optimal for keeping source & destination
-working well. HDD sound less when operating, and succeeds faster.
+Source **Samsung 990 PRO 4TB** PCIe 4, destination **Samsung 9100 PRO 4TB** PCIe 5:
+* 1TiB 495GiB 482MiB, 1.813 GB/s, 226 files
+* Execution time: 900s
+* Average bandwidth: 1.813 GB/s
