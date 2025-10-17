@@ -55,8 +55,28 @@ fn parse_line(line: String, convert_paths: bool) -> Result<(String, String), Str
     Ok((hash.to_string(), filename_corrected))
 }
 
-fn verify_file(file_path: std::path::PathBuf, hash: String) -> ExitCode {
+fn sha_file(file: &mut File) -> Result<String, String> {
     let block_size: usize = 128 * 1024;
+    let mut h1 = Sha256::new();
+
+    let mut heap_buf: Vec<u8> = Vec::with_capacity(block_size);
+    heap_buf.resize(block_size, 0x00);
+
+    loop {
+        match file.read(&mut heap_buf[0..block_size]) {
+            Ok(0) => break,
+            Ok(n) => h1.update(&heap_buf[0..n]),
+            Err(e) => {
+                return Err(e.to_string());
+            }
+        }
+    }
+    let digest = h1.finalize();
+    let strdigest = format!("{:x}", digest);
+    Ok(strdigest)
+}
+
+fn verify_file(file_path: std::path::PathBuf, hash: String) -> ExitCode {
     let mut file: File;
     match File::open(&file_path) {
         Ok(file_) => file = file_,
@@ -69,27 +89,17 @@ fn verify_file(file_path: std::path::PathBuf, hash: String) -> ExitCode {
             return ExitCode::from(3);
         }
     }
-    let mut h1 = Sha256::new();
-
-    let mut heap_buf: Vec<u8> = Vec::with_capacity(block_size);
-    heap_buf.resize(block_size, 0x00);
-
-    loop {
-        match file.read(&mut heap_buf[0..block_size]) {
-            Ok(0) => break,
-            Ok(n) => h1.update(&heap_buf[0..n]),
-            Err(e) => {
-                eprintln!("Error: {}: {}", file_path.display(), e);
-                break;
+    match sha_file(&mut file) {
+        Ok(strdigest) => {
+            if hash == strdigest {
+                println!("{}: OK", file_path.display());
+            } else {
+                println!("{}: FAILED (mismatch)", file_path.display());
             }
         }
-    }
-    let digest = h1.finalize();
-    let strdigest = format!("{:x}", digest);
-    if hash == strdigest {
-        println!("{}: OK", file_path.display());
-    } else {
-        println!("{}: FAILED", file_path.display());
+        Err(err) => {
+            println!("{}: FAILED (error: {})", file_path.display(), err);
+        }
     }
 
     ExitCode::SUCCESS
