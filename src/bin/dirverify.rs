@@ -385,6 +385,23 @@ fn s2i(string: String) -> usize {
     return result;
 }
 
+fn bandwidth(read_bytes: usize, seconds: u64) -> String {
+    if seconds == 0 {
+        return String::from("NaN");
+    }
+    let mut rb = (read_bytes as f64) / (seconds as f64);
+    let sufixes: Vec<&str> = vec!["B", "KB", "MB", "GB", "TB", "PB"];
+    let mut suff = "";
+    for s in sufixes {
+        suff = s;
+        if rb < 1000.0 {
+            break;
+        }
+        rb = rb / 1000.0;
+    }
+    return format!("{:.3} {}/s", rb, suff);
+}
+
 fn main() -> ExitCode {
     let args = Args::parse();
 
@@ -454,6 +471,7 @@ fn main() -> ExitCode {
         println!("* Execution time: {}s", seconds);
         println!("* Read (files): {}", stats.read_files);
         println!("* Read (bytes): {}", stats.read_bytes);
+        println!("* Bandwidth: {}", bandwidth(stats.read_bytes, seconds));
         println!("* Files matching: {}", stats.matches);
         println!("* Files mismatching: {}", stats.mismatches);
         println!("* Errors: {}", stats.errors);
