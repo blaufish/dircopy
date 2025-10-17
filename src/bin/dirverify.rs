@@ -40,6 +40,10 @@ struct Args {
     #[arg(long)]
     no_threaded_sha: bool,
 
+    /// Experimental flag for used with prototyping
+    #[arg(long)]
+    experimental_parallell: bool,
+
     /// Size of queue between reader and hasher thread. Tuning parameter.
     #[arg(long, default_value_t = 2)]
     queue_size: usize,
@@ -77,8 +81,16 @@ impl Statistics {
             errors: 0,
         }
     }
+    fn add(&mut self, other: &Statistics) {
+        self.read_bytes = other.read_bytes;
+        self.read_files = other.read_files;
+        self.matches = other.matches;
+        self.mismatches = other.mismatches;
+        self.errors = other.errors;
+    }
 }
 
+#[derive(Clone)]
 struct DirVerify {
     convert_paths: bool,
     threaded_sha_reader: bool,
@@ -455,13 +467,42 @@ fn main() -> ExitCode {
     let start = Instant::now();
 
     // ------ run the verifier ------
-    let hash_file = args.hash_file;
-    for (dir, names) in &sha_files {
-        let hash_names = match hash_file {
-            Some(_) => None,
-            None => Some(names.clone()),
-        };
-        dirverify.verify_all_lists(&mut stats, &dir, &hash_names, &hash_file);
+    if args.experimental_parallell {
+        let mut threads = Vec::new();
+        for (dir, names) in &sha_files {
+            let hash_file = args.hash_file.clone();
+            let dir_thread = dir.clone();
+            let names_thread = names.clone();
+            let dirverify_thread = dirverify.clone();
+            let thread = thread::spawn(move || -> Statistics {
+                let mut thread_stats = Statistics::new();
+                let hash_names = match hash_file {
+                    Some(_) => None,
+                    None => Some(names_thread.clone()),
+                };
+                dirverify_thread.verify_all_lists(&mut thread_stats, &dir_thread, &hash_names, &hash_file);
+                thread_stats
+            });
+            threads.push(thread);
+        }
+        for thread in threads {
+            match thread.join() {
+                Ok(x) => stats.add(&x),
+                Err(err) => {
+                    stats.errors += 1;
+                    eprintln!("{}", format!("Join error: {:?}", err));
+                }
+            }
+        }
+    } else {
+        let hash_file = args.hash_file;
+        for (dir, names) in &sha_files {
+            let hash_names = match hash_file {
+                Some(_) => None,
+                None => Some(names.clone()),
+            };
+            dirverify.verify_all_lists(&mut stats, &dir, &hash_names, &hash_file);
+        }
     }
     // ------
 
