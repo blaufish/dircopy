@@ -7,11 +7,11 @@ use std::io::BufReader;
 //use std::io::IsTerminal;
 use std::io::Read;
 //use std::io::Write;
+use std::path::MAIN_SEPARATOR_STR;
+use std::process::ExitCode;
 //use std::sync::mpsc::sync_channel;
 //use std::thread;
 //use std::time::Instant;
-
-use std::process::ExitCode;
 
 //use chrono::prelude::*;
 use clap::Parser;
@@ -21,9 +21,12 @@ use sha2::{Digest, Sha256};
 #[command(version, about, long_about = None)]
 struct Args {
     dir: Vec<std::path::PathBuf>,
+
+    #[arg(long, default_value_t = true)]
+    convert_paths: bool,
 }
 
-fn parse_line(line: String) -> Result<(String, String), String> {
+fn parse_line(line: String, convert_paths: bool) -> Result<(String, String), String> {
     if line.len() < 67 {
         return Err(String::from("Too short"));
     }
@@ -33,8 +36,23 @@ fn parse_line(line: String) -> Result<(String, String), String> {
     }
     let hash = &line[..64];
     let filename = &line[66..];
+    let filename_corrected;
 
-    Ok((hash.to_string(), filename.to_string()))
+    if convert_paths {
+        if !filename.contains(MAIN_SEPARATOR_STR) {
+            match MAIN_SEPARATOR_STR {
+                "\\" => filename_corrected = filename.replace("/", "\\"),
+                "/" => filename_corrected = filename.replace("\\", "/"),
+                &_ => filename_corrected = filename.to_string(),
+            }
+        } else {
+            filename_corrected = filename.to_string();
+        }
+    } else {
+        filename_corrected = filename.to_string();
+    }
+
+    Ok((hash.to_string(), filename_corrected))
 }
 
 fn verify_file(file_path: std::path::PathBuf, hash: String) -> ExitCode {
@@ -66,10 +84,22 @@ fn verify_file(file_path: std::path::PathBuf, hash: String) -> ExitCode {
             }
         }
     }
+    let digest = h1.finalize();
+    let strdigest = format!("{:x}", digest);
+    if hash == strdigest {
+        println!("{}: OK", file_path.display());
+    } else {
+        println!("{}: FAILED", file_path.display());
+    }
+
     ExitCode::SUCCESS
 }
 
-fn verify_list(dir: &std::path::PathBuf, list: std::path::PathBuf) -> ExitCode {
+fn verify_list(
+    dir: &std::path::PathBuf,
+    list: std::path::PathBuf,
+    convert_paths: bool,
+) -> ExitCode {
     let file;
     match File::open(&list) {
         Ok(f) => file = f,
@@ -82,11 +112,11 @@ fn verify_list(dir: &std::path::PathBuf, list: std::path::PathBuf) -> ExitCode {
     for line_result in reader.lines() {
         match line_result {
             Ok(line) => {
-                println!("debug...{} {}", list.display(), line);
-                match parse_line(line) {
+                //println!("debug...{} {}", list.display(), line);
+                match parse_line(line, convert_paths) {
                     Ok((hash, filename)) => {
-                        println!("debug... hash: {}", hash);
-                        println!("debug... filename: {}", filename);
+                        //println!("debug... hash: {}", hash);
+                        //println!("debug... filename: {}", filename);
                         let mut file_path = dir.clone();
                         file_path.push(filename);
                         let e = verify_file(file_path, hash);
@@ -109,11 +139,15 @@ fn verify_list(dir: &std::path::PathBuf, list: std::path::PathBuf) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn verify_all_lists(dir: &std::path::PathBuf, sha_files: Vec<String>) -> ExitCode {
+fn verify_all_lists(
+    dir: &std::path::PathBuf,
+    sha_files: Vec<String>,
+    convert_paths: bool,
+) -> ExitCode {
     for sha_file in sha_files {
         let mut sha_file_pb = dir.clone();
         sha_file_pb.push(sha_file);
-        let e = verify_list(dir, sha_file_pb);
+        let e = verify_list(dir, sha_file_pb, convert_paths);
         if e != ExitCode::SUCCESS {
             return e;
         }
@@ -192,7 +226,7 @@ fn main() -> ExitCode {
         for name in names.clone() {
             println!("Found files: {} - {}", dir.display(), name);
         }
-        let exit_code = verify_all_lists(&dir, names);
+        let exit_code = verify_all_lists(&dir, names, args.convert_paths);
         if exit_code != ExitCode::SUCCESS {
             return exit_code;
         }
