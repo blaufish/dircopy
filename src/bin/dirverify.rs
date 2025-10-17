@@ -17,48 +17,133 @@ use std::time::Instant;
 use clap::Parser;
 use sha2::{Digest, Sha256};
 
+/// A directory verifier. Searches for sha256*.txt files in directories.
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
+    /// Directories with files to be verified
     dir: Vec<std::path::PathBuf>,
 
-    #[arg(long, conflicts_with = "convert_paths")]
+    /// Keep paths exactly as is. Do not try to workaround unix, dos mismatches.
+    #[arg(long)]
     no_convert_paths: bool,
 
+    /// Do not print a summary
     #[arg(long)]
+    no_summary: bool,
+
+    /// Print informative messages helpful for understanding processing
+    #[arg(long)]
+    verbose: bool,
+}
+
+struct Statistics {
+    read_bytes: usize,
+    read_files: usize,
+    matches: usize,
+    mismatches: usize,
+    errors: usize,
+}
+
+impl Statistics {
+    fn new() -> Statistics {
+        Statistics {
+            read_bytes: 0,
+            read_files: 0,
+            matches: 0,
+            mismatches: 0,
+            errors: 0,
+        }
+    }
+}
+
+struct DirVerify {
     convert_paths: bool,
 }
 
-fn parse_line(line: String, convert_paths: bool) -> Result<(String, String), String> {
-    if line.len() < 67 {
-        return Err(String::from("Too short"));
-    }
-    match &line[64..66] {
-        "  " => (),
-        _ => return Err(String::from("Expected 2 spaces")),
-    }
-    let hash = &line[..64];
-    let filename = &line[66..];
-    let filename_corrected;
+impl DirVerify {
+    fn parse_line(&self, line: String) -> Result<(String, String), String> {
+        if line.len() < 67 {
+            return Err(String::from("Too short"));
+        }
+        match &line[64..66] {
+            "  " => (),
+            _ => return Err(String::from("Expected 2 spaces")),
+        }
+        let hash = &line[..64];
+        let filename = &line[66..];
+        let filename_corrected;
 
-    if convert_paths {
-        if !filename.contains(MAIN_SEPARATOR_STR) {
-            match MAIN_SEPARATOR_STR {
-                "\\" => filename_corrected = filename.replace("/", "\\"),
-                "/" => filename_corrected = filename.replace("\\", "/"),
-                &_ => filename_corrected = filename.to_string(),
+        if self.convert_paths {
+            if !filename.contains(MAIN_SEPARATOR_STR) {
+                match MAIN_SEPARATOR_STR {
+                    "\\" => filename_corrected = filename.replace("/", "\\"),
+                    "/" => filename_corrected = filename.replace("\\", "/"),
+                    &_ => filename_corrected = filename.to_string(),
+                }
+            } else {
+                filename_corrected = filename.to_string();
             }
         } else {
             filename_corrected = filename.to_string();
         }
-    } else {
-        filename_corrected = filename.to_string();
+
+        Ok((hash.to_string(), filename_corrected))
     }
 
-    Ok((hash.to_string(), filename_corrected))
+    fn verify_list(
+        &self,
+        stats: &mut Statistics,
+        dir: &std::path::PathBuf,
+        list: std::path::PathBuf,
+    ) {
+        let file;
+        match File::open(&list) {
+            Ok(f) => file = f,
+            Err(e) => {
+                eprintln!("Error opening {}: {}", list.display(), e);
+                stats.errors += 1;
+                return;
+            }
+        }
+        let reader = BufReader::new(file);
+        for line_result in reader.lines() {
+            match line_result {
+                Ok(line) => match self.parse_line(line) {
+                    Ok((hash, filename)) => {
+                        let mut file_path = dir.clone();
+                        file_path.push(filename);
+                        verify_file(stats, file_path, hash);
+                    }
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        stats.errors += 1;
+                        return;
+                    }
+                },
+                Err(e) => {
+                    eprintln!("Unexpected error processing {}: {}", list.display(), e);
+                    stats.errors += 1;
+                }
+            }
+        }
+    }
+
+    fn verify_all_lists(
+        &self,
+        stats: &mut Statistics,
+        dir: &std::path::PathBuf,
+        sha_files: Vec<String>,
+    ) {
+        for sha_file in sha_files {
+            let mut sha_file_pb = dir.clone();
+            sha_file_pb.push(sha_file);
+            self.verify_list(stats, dir, sha_file_pb);
+        }
+    }
 }
 
-fn sha_file(file: &mut File) -> Result<String, String> {
+fn sha_file(stats: &mut Statistics, file: &mut File) -> Result<String, String> {
     let block_size: usize = 128 * 1024;
     let mut h1 = Sha256::new();
 
@@ -68,7 +153,10 @@ fn sha_file(file: &mut File) -> Result<String, String> {
     loop {
         match file.read(&mut heap_buf[0..block_size]) {
             Ok(0) => break,
-            Ok(n) => h1.update(&heap_buf[0..n]),
+            Ok(n) => {
+                h1.update(&heap_buf[0..n]);
+                stats.read_bytes += n;
+            }
             Err(e) => {
                 return Err(e.to_string());
             }
@@ -79,7 +167,7 @@ fn sha_file(file: &mut File) -> Result<String, String> {
     Ok(strdigest)
 }
 
-fn verify_file(file_path: std::path::PathBuf, hash: String) -> ExitCode {
+fn verify_file(stats: &mut Statistics, file_path: std::path::PathBuf, hash: String) {
     let mut file: File;
     match File::open(&file_path) {
         Ok(file_) => file = file_,
@@ -89,92 +177,25 @@ fn verify_file(file_path: std::path::PathBuf, hash: String) -> ExitCode {
                 file_path.display(),
                 e
             );
-            return ExitCode::from(3);
+            stats.errors += 1;
+            return;
         }
     }
-    match sha_file(&mut file) {
+    stats.read_files += 1;
+    match sha_file(stats, &mut file) {
         Ok(strdigest) => {
             if hash == strdigest {
                 println!("{}: OK", file_path.display());
+                stats.matches += 1;
             } else {
                 println!("{}: FAILED (mismatch)", file_path.display());
+                stats.mismatches += 1;
             }
         }
         Err(err) => {
             println!("{}: FAILED (error: {})", file_path.display(), err);
+            stats.errors += 1;
         }
-    }
-
-    ExitCode::SUCCESS
-}
-
-fn verify_list(
-    dir: &std::path::PathBuf,
-    list: std::path::PathBuf,
-    convert_paths: bool,
-) -> ExitCode {
-    let file;
-    match File::open(&list) {
-        Ok(f) => file = f,
-        Err(e) => {
-            eprintln!("Error opening {}: {}", list.display(), e);
-            return ExitCode::from(2);
-        }
-    }
-    let reader = BufReader::new(file);
-    for line_result in reader.lines() {
-        match line_result {
-            Ok(line) => {
-                //println!("debug...{} {}", list.display(), line);
-                match parse_line(line, convert_paths) {
-                    Ok((hash, filename)) => {
-                        //println!("debug... hash: {}", hash);
-                        //println!("debug... filename: {}", filename);
-                        let mut file_path = dir.clone();
-                        file_path.push(filename);
-                        let e = verify_file(file_path, hash);
-                        if e != ExitCode::SUCCESS {
-                            return e;
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("Error: {}", e);
-                        return ExitCode::from(2);
-                    }
-                }
-            }
-            Err(e) => {
-                eprintln!("Unexpected error processing {}: {}", list.display(), e);
-                return ExitCode::from(2);
-            }
-        }
-    }
-    ExitCode::SUCCESS
-}
-
-fn verify_all_lists(
-    dir: &std::path::PathBuf,
-    sha_files: Vec<String>,
-    convert_paths: bool,
-) -> ExitCode {
-    for sha_file in sha_files {
-        let mut sha_file_pb = dir.clone();
-        sha_file_pb.push(sha_file);
-        let e = verify_list(dir, sha_file_pb, convert_paths);
-        if e != ExitCode::SUCCESS {
-            return e;
-        }
-    }
-    ExitCode::SUCCESS
-}
-
-fn op(yes_flag: bool, no_flag: bool, default_if_not_specifed: bool) -> bool {
-    if yes_flag {
-        true
-    } else if no_flag {
-        false
-    } else {
-        default_if_not_specifed
     }
 }
 
@@ -232,6 +253,7 @@ fn main() -> ExitCode {
 
     if args.dir.len() == 0 {
         eprintln!("Error: No directory specified");
+        return ExitCode::from(1);
     }
 
     let mut sha_files: Vec<(std::path::PathBuf, Vec<String>)> = Vec::new();
@@ -251,21 +273,39 @@ fn main() -> ExitCode {
         }
     }
 
-    let convert_paths = op(args.convert_paths, args.no_convert_paths, true);
+    let dirverify = DirVerify {
+        convert_paths: !args.no_convert_paths,
+    };
+
+    let mut stats = Statistics::new();
 
     let start = Instant::now();
 
     for (dir, names) in sha_files {
-        for name in names.clone() {
-            println!("Found files: {} - {}", dir.display(), name);
+        if args.verbose {
+            for name in names.clone() {
+                println!("Found files: {} - {}", dir.display(), name);
+            }
         }
-        let exit_code = verify_all_lists(&dir, names, convert_paths);
-        if exit_code != ExitCode::SUCCESS {
-            return exit_code;
-        }
+        dirverify.verify_all_lists(&mut stats, &dir, names);
     }
-    let seconds = start.elapsed().as_secs();
-    println!("Execution time: {}s", seconds);
+
+    if !args.no_summary {
+        let seconds = start.elapsed().as_secs();
+        println!("Summary:");
+        println!("* Execution time: {}s", seconds);
+        println!("* Read (files): {}", stats.read_files);
+        println!("* Read (bytes): {}", stats.read_bytes);
+        println!("* Files matching: {}", stats.matches);
+        println!("* Files mismatching: {}", stats.mismatches);
+        println!("* Errors: {}", stats.errors);
+    }
+    if stats.errors != 0 {
+        return ExitCode::from(1);
+    }
+    if stats.mismatches != 0 {
+        return ExitCode::from(1);
+    }
 
     ExitCode::SUCCESS
 }
