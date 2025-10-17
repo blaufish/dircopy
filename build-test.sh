@@ -3,10 +3,22 @@
 set -e
 set -x
 
-if [[ "$DIR" == "" ]]
-then
-	DIR="$PWD/.test"
-fi
+DIR="$PWD/.test"
+CUR="$PWD"
+
+while getopts ":d:c:" option; do
+	case "${option}" in
+		d)
+			DIR="${OPTARG}"
+			;;
+		c)
+			CUR="${OPTARG}"
+			;;
+		*)
+			exit 1
+			;;
+	esac
+done
 
 mkdir -p -- "$DIR/src/"
 mkdir -p -- "$DIR/src/subdir_a/subdir_b"
@@ -21,10 +33,15 @@ do
 done
 
 mkdir -p -- "$DIR/dst/"
+find "$DIR/dst" -name "shasum.*.txt" -exec rm -- '{}' ';'
 
 target/release/dircopy -i "$DIR/src" -o "$DIR/dst" --overwrite-policy always
 
 SHASUM=$( find "$DIR/dst" -name "shasum.*.txt" | sort --version-sort | tail -1 )
 
-cd -- "$DIR/src/" && sha256sum -c -- "$SHASUM" && cd ..
-cd -- "$DIR/dst/" && sha256sum -c -- "$SHASUM" && cd ..
+cd -- "$DIR/src/" && sha256sum -c -- "$SHASUM"
+cd -- "$DIR/dst/" && sha256sum -c -- "$SHASUM"
+
+cd -- "$CUR"
+target/release/dirverify --verbose "$DIR/dst"
+target/release/dirverify --verbose --hash-file "$SHASUM" "$DIR/src" "$DIR/dst"
