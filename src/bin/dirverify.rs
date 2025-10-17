@@ -9,8 +9,8 @@ use std::io::Read;
 //use std::io::Write;
 use std::path::MAIN_SEPARATOR_STR;
 use std::process::ExitCode;
-//use std::sync::mpsc::sync_channel;
-//use std::thread;
+use std::sync::mpsc::sync_channel;
+use std::thread;
 use std::time::Instant;
 
 //use chrono::prelude::*;
@@ -31,6 +31,10 @@ struct Args {
     /// Do not print a summary
     #[arg(long)]
     no_summary: bool,
+
+    /// Disable threaded sha read/hash behavior
+    #[arg(long)]
+    no_threaded_sha: bool,
 
     /// Print informative messages helpful for understanding processing
     #[arg(long)]
@@ -59,6 +63,7 @@ impl Statistics {
 
 struct DirVerify {
     convert_paths: bool,
+    threaded_sha_reader: bool,
 }
 
 impl DirVerify {
@@ -113,7 +118,7 @@ impl DirVerify {
                     Ok((hash, filename)) => {
                         let mut file_path = dir.clone();
                         file_path.push(filename);
-                        verify_file(stats, file_path, hash);
+                        self.verify_file(stats, file_path, hash);
                     }
                     Err(e) => {
                         eprintln!("Error: {}", e);
@@ -141,9 +146,49 @@ impl DirVerify {
             self.verify_list(stats, dir, sha_file_pb);
         }
     }
+
+    fn verify_file(&self, stats: &mut Statistics, file_path: std::path::PathBuf, hash: String) {
+        let mut file: File;
+        match File::open(&file_path) {
+            Ok(file_) => file = file_,
+            Err(e) => {
+                eprintln!(
+                    "Unexpected error opening file {}: {}",
+                    file_path.display(),
+                    e
+                );
+                stats.errors += 1;
+                return;
+            }
+        }
+        stats.read_files += 1;
+        match self.sha_file(stats, &mut file) {
+            Ok(strdigest) => {
+                if hash == strdigest {
+                    println!("{}: OK", file_path.display());
+                    stats.matches += 1;
+                } else {
+                    println!("{}: FAILED (mismatch)", file_path.display());
+                    stats.mismatches += 1;
+                }
+            }
+            Err(err) => {
+                println!("{}: FAILED (error: {})", file_path.display(), err);
+                stats.errors += 1;
+            }
+        }
+    }
+
+    fn sha_file(&self, stats: &mut Statistics, file: &mut File) -> Result<String, String> {
+        if self.threaded_sha_reader {
+            sha_file_multithread(stats, file)
+        } else {
+            sha_file_single_thread(stats, file)
+        }
+    }
 }
 
-fn sha_file(stats: &mut Statistics, file: &mut File) -> Result<String, String> {
+fn sha_file_single_thread(stats: &mut Statistics, file: &mut File) -> Result<String, String> {
     let block_size: usize = 128 * 1024;
     let mut h1 = Sha256::new();
 
@@ -167,35 +212,67 @@ fn sha_file(stats: &mut Statistics, file: &mut File) -> Result<String, String> {
     Ok(strdigest)
 }
 
-fn verify_file(stats: &mut Statistics, file_path: std::path::PathBuf, hash: String) {
-    let mut file: File;
-    match File::open(&file_path) {
-        Ok(file_) => file = file_,
-        Err(e) => {
-            eprintln!(
-                "Unexpected error opening file {}: {}",
-                file_path.display(),
-                e
-            );
-            stats.errors += 1;
-            return;
-        }
-    }
-    stats.read_files += 1;
-    match sha_file(stats, &mut file) {
-        Ok(strdigest) => {
-            if hash == strdigest {
-                println!("{}: OK", file_path.display());
-                stats.matches += 1;
-            } else {
-                println!("{}: FAILED (mismatch)", file_path.display());
-                stats.mismatches += 1;
+enum Message {
+    Block(Vec<u8>),
+    Done,
+    Error,
+}
+
+fn sha_file_multithread(stats: &mut Statistics, file: &mut File) -> Result<String, String> {
+    let block_size: usize = 128 * 1024;
+    let queue_size: usize = 2;
+
+    let (read_tx, sha_rx) = sync_channel::<Message>(queue_size);
+
+    let sha_thread = thread::spawn(move || -> Result<String, String> {
+        let mut h1 = Sha256::new();
+        loop {
+            match sha_rx.recv() {
+                Ok(Message::Block(block)) => {
+                    h1.update(&block);
+                }
+                Ok(Message::Error) => {
+                    return Err(String::from("T-Read: sent error"));
+                }
+                Ok(Message::Done) => {
+                    break;
+                }
+                Err(e) => {
+                    return Err(format!("T-SHA: {}", e));
+                }
             }
         }
-        Err(err) => {
-            println!("{}: FAILED (error: {})", file_path.display(), err);
-            stats.errors += 1;
+        let digest = h1.finalize();
+        let strdigest = format!("{:x}", digest);
+        return Ok(strdigest);
+    });
+
+    let mut heap_buf: Vec<u8> = Vec::with_capacity(block_size);
+    heap_buf.resize(block_size, 0x00);
+
+    loop {
+        match file.read(&mut heap_buf[0..block_size]) {
+            Ok(0) => {
+                if let Err(e) = read_tx.send(Message::Done) {
+                    return Err(format!("Error: {}", e));
+                }
+                break;
+            }
+            Ok(n) => {
+                stats.read_bytes += n;
+                if let Err(e) = read_tx.send(Message::Block(heap_buf[0..n].to_vec())) {
+                    return Err(format!("Error: {}", e));
+                }
+            }
+            Err(e) => {
+                _ = read_tx.send(Message::Error);
+                return Err(e.to_string());
+            }
         }
+    }
+    match sha_thread.join() {
+        Ok(x) => x,
+        Err(err) => Err(format!("Join error: {:?}", err)),
     }
 }
 
@@ -275,6 +352,7 @@ fn main() -> ExitCode {
 
     let dirverify = DirVerify {
         convert_paths: !args.no_convert_paths,
+        threaded_sha_reader: !args.no_threaded_sha,
     };
 
     let mut stats = Statistics::new();
