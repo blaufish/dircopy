@@ -40,9 +40,23 @@ struct Args {
     #[arg(long)]
     no_threaded_sha: bool,
 
+    /// Size of queue between reader and hasher thread. Tuning parameter.
+    #[arg(long, default_value_t = 2)]
+    queue_size: usize,
+
+    /// Size of blocks between reader and hasher thread. Tuning parameter.
+    #[arg(long, default_value = "128K")]
+    block_size: String,
+
     /// Print informative messages helpful for understanding processing
     #[arg(long)]
     verbose: bool,
+}
+
+enum Message {
+    Block(Vec<u8>),
+    Done,
+    Error,
 }
 
 struct Statistics {
@@ -68,6 +82,8 @@ impl Statistics {
 struct DirVerify {
     convert_paths: bool,
     threaded_sha_reader: bool,
+    block_size: usize,
+    queue_size: usize,
 }
 
 impl DirVerify {
@@ -191,98 +207,100 @@ impl DirVerify {
 
     fn sha_file(&self, stats: &mut Statistics, file: &mut File) -> Result<String, String> {
         if self.threaded_sha_reader {
-            sha_file_multithread(stats, file)
+            self.sha_file_multithread(stats, file)
         } else {
-            sha_file_single_thread(stats, file)
+            self.sha_file_single_thread(stats, file)
         }
     }
-}
 
-fn sha_file_single_thread(stats: &mut Statistics, file: &mut File) -> Result<String, String> {
-    let block_size: usize = 128 * 1024;
-    let mut h1 = Sha256::new();
-
-    let mut heap_buf: Vec<u8> = Vec::with_capacity(block_size);
-    heap_buf.resize(block_size, 0x00);
-
-    loop {
-        match file.read(&mut heap_buf[0..block_size]) {
-            Ok(0) => break,
-            Ok(n) => {
-                h1.update(&heap_buf[0..n]);
-                stats.read_bytes += n;
-            }
-            Err(e) => {
-                return Err(e.to_string());
-            }
-        }
-    }
-    let digest = h1.finalize();
-    let strdigest = format!("{:x}", digest);
-    Ok(strdigest)
-}
-
-enum Message {
-    Block(Vec<u8>),
-    Done,
-    Error,
-}
-
-fn sha_file_multithread(stats: &mut Statistics, file: &mut File) -> Result<String, String> {
-    let block_size: usize = 128 * 1024;
-    let queue_size: usize = 2;
-
-    let (read_tx, sha_rx) = sync_channel::<Message>(queue_size);
-
-    let sha_thread = thread::spawn(move || -> Result<String, String> {
+    fn sha_file_single_thread(
+        &self,
+        stats: &mut Statistics,
+        file: &mut File,
+    ) -> Result<String, String> {
+        let block_size = self.block_size;
         let mut h1 = Sha256::new();
+
+        let mut heap_buf: Vec<u8> = Vec::with_capacity(block_size);
+        heap_buf.resize(block_size, 0x00);
+
         loop {
-            match sha_rx.recv() {
-                Ok(Message::Block(block)) => {
-                    h1.update(&block);
-                }
-                Ok(Message::Error) => {
-                    return Err(String::from("T-Read: sent error"));
-                }
-                Ok(Message::Done) => {
-                    break;
+            match file.read(&mut heap_buf[0..block_size]) {
+                Ok(0) => break,
+                Ok(n) => {
+                    h1.update(&heap_buf[0..n]);
+                    stats.read_bytes += n;
                 }
                 Err(e) => {
-                    return Err(format!("T-SHA: {}", e));
+                    return Err(e.to_string());
                 }
             }
         }
         let digest = h1.finalize();
         let strdigest = format!("{:x}", digest);
-        return Ok(strdigest);
-    });
+        Ok(strdigest)
+    }
 
-    let mut heap_buf: Vec<u8> = Vec::with_capacity(block_size);
-    heap_buf.resize(block_size, 0x00);
+    fn sha_file_multithread(
+        &self,
+        stats: &mut Statistics,
+        file: &mut File,
+    ) -> Result<String, String> {
+        let block_size = self.block_size;
+        let queue_size = self.queue_size;
 
-    loop {
-        match file.read(&mut heap_buf[0..block_size]) {
-            Ok(0) => {
-                if let Err(e) = read_tx.send(Message::Done) {
-                    return Err(format!("Error: {}", e));
+        let (read_tx, sha_rx) = sync_channel::<Message>(queue_size);
+
+        let sha_thread = thread::spawn(move || -> Result<String, String> {
+            let mut h1 = Sha256::new();
+            loop {
+                match sha_rx.recv() {
+                    Ok(Message::Block(block)) => {
+                        h1.update(&block);
+                    }
+                    Ok(Message::Error) => {
+                        return Err(String::from("T-Read: sent error"));
+                    }
+                    Ok(Message::Done) => {
+                        break;
+                    }
+                    Err(e) => {
+                        return Err(format!("T-SHA: {}", e));
+                    }
                 }
-                break;
             }
-            Ok(n) => {
-                stats.read_bytes += n;
-                if let Err(e) = read_tx.send(Message::Block(heap_buf[0..n].to_vec())) {
-                    return Err(format!("Error: {}", e));
+            let digest = h1.finalize();
+            let strdigest = format!("{:x}", digest);
+            return Ok(strdigest);
+        });
+
+        let mut heap_buf: Vec<u8> = Vec::with_capacity(block_size);
+        heap_buf.resize(block_size, 0x00);
+
+        loop {
+            match file.read(&mut heap_buf[0..block_size]) {
+                Ok(0) => {
+                    if let Err(e) = read_tx.send(Message::Done) {
+                        return Err(format!("Error: {}", e));
+                    }
+                    break;
                 }
-            }
-            Err(e) => {
-                _ = read_tx.send(Message::Error);
-                return Err(e.to_string());
+                Ok(n) => {
+                    stats.read_bytes += n;
+                    if let Err(e) = read_tx.send(Message::Block(heap_buf[0..n].to_vec())) {
+                        return Err(format!("Error: {}", e));
+                    }
+                }
+                Err(e) => {
+                    _ = read_tx.send(Message::Error);
+                    return Err(e.to_string());
+                }
             }
         }
-    }
-    match sha_thread.join() {
-        Ok(x) => x,
-        Err(err) => Err(format!("Join error: {:?}", err)),
+        match sha_thread.join() {
+            Ok(x) => x,
+            Err(err) => Err(format!("Join error: {:?}", err)),
+        }
     }
 }
 
@@ -338,6 +356,35 @@ fn inspect_dir(dir: &std::path::PathBuf, detect_sha_files: bool) -> Result<Vec<S
     Ok(names)
 }
 
+// Convert "128K" into 128*1024, and such
+fn s2i(string: String) -> usize {
+    let mut prefix: usize = 0;
+    let mut exponent: usize = 1;
+    for c in string.chars() {
+        match c {
+            'K' => exponent = 1024,
+            'M' => exponent = 1024 * 1024,
+            'G' => exponent = 1024 * 1024 * 1024,
+            '0' => prefix = prefix * 10,
+            '1' => prefix = prefix * 10 + 1,
+            '2' => prefix = prefix * 10 + 2,
+            '3' => prefix = prefix * 10 + 3,
+            '4' => prefix = prefix * 10 + 4,
+            '5' => prefix = prefix * 10 + 5,
+            '6' => prefix = prefix * 10 + 6,
+            '7' => prefix = prefix * 10 + 7,
+            '8' => prefix = prefix * 10 + 8,
+            '9' => prefix = prefix * 10 + 9,
+            _ => eprintln!("Unable to parse: {}", string),
+        }
+    }
+    let result = prefix * exponent;
+    if result < 1 {
+        eprintln!("Unable to parse: {}", string)
+    }
+    return result;
+}
+
 fn main() -> ExitCode {
     let args = Args::parse();
 
@@ -372,6 +419,8 @@ fn main() -> ExitCode {
     let dirverify = DirVerify {
         convert_paths: !args.no_convert_paths,
         threaded_sha_reader: !args.no_threaded_sha,
+        block_size: s2i(args.block_size),
+        queue_size: args.queue_size,
     };
 
     if args.verbose {
