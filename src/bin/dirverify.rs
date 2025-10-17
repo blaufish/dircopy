@@ -82,11 +82,11 @@ impl Statistics {
         }
     }
     fn add(&mut self, other: &Statistics) {
-        self.read_bytes = other.read_bytes;
-        self.read_files = other.read_files;
-        self.matches = other.matches;
-        self.mismatches = other.mismatches;
-        self.errors = other.errors;
+        self.read_bytes += other.read_bytes;
+        self.read_files += other.read_files;
+        self.matches += other.matches;
+        self.mismatches += other.mismatches;
+        self.errors += other.errors;
     }
 }
 
@@ -480,7 +480,12 @@ fn main() -> ExitCode {
                     Some(_) => None,
                     None => Some(names_thread.clone()),
                 };
-                dirverify_thread.verify_all_lists(&mut thread_stats, &dir_thread, &hash_names, &hash_file);
+                dirverify_thread.verify_all_lists(
+                    &mut thread_stats,
+                    &dir_thread,
+                    &hash_names,
+                    &hash_file,
+                );
                 thread_stats
             });
             threads.push(thread);
