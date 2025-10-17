@@ -25,4 +25,6 @@ podman build \
 
 mkdir -p -- "$OUTDIR"
 podman_copy /build/target/x86_64-pc-windows-gnu/release/dircopy.exe "dircopy-$TAG-x86_64-pc-windows-gnu.exe"
+podman_copy /build/target/x86_64-pc-windows-gnu/release/dirverify.exe "dirverify-$TAG-x86_64-pc-windows-gnu.exe"
 podman_copy /build/target/release/dircopy "dircopy-$TAG"
+podman_copy /build/target/release/dirverify "dirverify-$TAG"

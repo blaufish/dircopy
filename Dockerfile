@@ -28,7 +28,7 @@ RUN \
  cargo check && \
  rm -Rvf -- src
 
-COPY src/main.rs /build/src/main.rs
+COPY src/bin/*.rs /build/src/bin/
 
 RUN cd /build/ && cargo build --release
 RUN cd /build/ && cargo build --release --target x86_64-pc-windows-gnu
