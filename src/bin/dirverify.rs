@@ -11,7 +11,7 @@ use std::path::MAIN_SEPARATOR_STR;
 use std::process::ExitCode;
 //use std::sync::mpsc::sync_channel;
 //use std::thread;
-//use std::time::Instant;
+use std::time::Instant;
 
 //use chrono::prelude::*;
 use clap::Parser;
@@ -22,7 +22,10 @@ use sha2::{Digest, Sha256};
 struct Args {
     dir: Vec<std::path::PathBuf>,
 
-    #[arg(long, default_value_t = true)]
+    #[arg(long, conflicts_with = "convert_paths")]
+    no_convert_paths: bool,
+
+    #[arg(long)]
     convert_paths: bool,
 }
 
@@ -165,6 +168,65 @@ fn verify_all_lists(
     ExitCode::SUCCESS
 }
 
+fn op(yes_flag: bool, no_flag: bool, default_if_not_specifed: bool) -> bool {
+    if yes_flag {
+        true
+    } else if no_flag {
+        false
+    } else {
+        default_if_not_specifed
+    }
+}
+
+fn inspect_dir(dir: &std::path::PathBuf) -> Result<Vec<String>, String> {
+    if !dir.is_dir() {
+        return Err(format!("Not a directory {}", dir.display()));
+    }
+    let read_dir_maybe = fs::read_dir(&dir);
+    let read_dir;
+    match read_dir_maybe {
+        Ok(rd) => read_dir = rd,
+        Err(e) => {
+            return Err(format!("{}: {}", dir.display(), e));
+        }
+    }
+    let mut names: Vec<String> = Vec::new();
+    for entry in read_dir {
+        let name;
+        match entry {
+            Ok(file_entry) => {
+                match file_entry.file_name().into_string() {
+                    Ok(n) => name = n,
+                    Err(e) => {
+                        return Err(format!("Error reading file name: {}", e.display()));
+                    }
+                }
+                match file_entry.file_type() {
+                    Ok(file_type) => {
+                        if !file_type.is_file() {
+                            continue;
+                        }
+                    }
+                    Err(e) => {
+                        return Err(format!("Error determining file type; {} {}", name, e));
+                    }
+                }
+            }
+            Err(e) => {
+                return Err(format!("Unexpected: {}", e));
+            }
+        }
+        if !name.starts_with("shasum.") {
+            continue;
+        }
+        if !name.ends_with(".txt") {
+            continue;
+        }
+        names.push(name);
+    }
+    Ok(names)
+}
+
 fn main() -> ExitCode {
     let args = Args::parse();
 
@@ -174,73 +236,36 @@ fn main() -> ExitCode {
 
     let mut sha_files: Vec<(std::path::PathBuf, Vec<String>)> = Vec::new();
     for dir in args.dir {
-        if !dir.is_dir() {
-            eprintln!("Error: Not a directory {}", dir.display());
-            return ExitCode::from(1);
-        }
-
-        let read_dir_maybe = fs::read_dir(&dir);
-        let read_dir;
-        match read_dir_maybe {
-            Ok(rd) => read_dir = rd,
-            Err(e) => {
-                eprintln!("Error indexing {}: {}", dir.display(), e);
+        match inspect_dir(&dir) {
+            Ok(names) => {
+                if names.len() == 0 {
+                    eprintln!("Error: no shasum.*.txt files in {}", dir.display());
+                    return ExitCode::from(1);
+                }
+                sha_files.push((dir, names));
+            }
+            Err(err) => {
+                eprintln!("Error: {}", err);
                 return ExitCode::from(1);
             }
         }
-        let mut names: Vec<String> = Vec::new();
-        for entry in read_dir {
-            let name;
-            match entry {
-                Ok(file_entry) => {
-                    match file_entry.file_name().into_string() {
-                        Ok(n) => name = n,
-                        Err(e) => {
-                            eprintln!("Error reading file name: {}", e.display());
-                            return ExitCode::from(1);
-                        }
-                    }
-                    match file_entry.file_type() {
-                        Ok(file_type) => {
-                            if !file_type.is_file() {
-                                continue;
-                            }
-                        }
-                        Err(e) => {
-                            eprintln!("Error determining file type; {} {}", name, e);
-                            return ExitCode::from(1);
-                        }
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Error, unexpected: {}", e);
-                    return ExitCode::from(1);
-                }
-            }
-            if !name.starts_with("shasum.") {
-                continue;
-            }
-            if !name.ends_with(".txt") {
-                continue;
-            }
-            names.push(name);
-        }
-        if names.len() == 0 {
-            eprintln!("Error: no shasum.*.txt files in {}", dir.display());
-            return ExitCode::from(1);
-        }
-        sha_files.push((dir, names));
     }
+
+    let convert_paths = op(args.convert_paths, args.no_convert_paths, true);
+
+    let start = Instant::now();
 
     for (dir, names) in sha_files {
         for name in names.clone() {
             println!("Found files: {} - {}", dir.display(), name);
         }
-        let exit_code = verify_all_lists(&dir, names, args.convert_paths);
+        let exit_code = verify_all_lists(&dir, names, convert_paths);
         if exit_code != ExitCode::SUCCESS {
             return exit_code;
         }
     }
+    let seconds = start.elapsed().as_secs();
+    println!("Execution time: {}s", seconds);
 
     ExitCode::SUCCESS
 }
