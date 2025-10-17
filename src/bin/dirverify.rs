@@ -17,12 +17,16 @@ use std::time::Instant;
 use clap::Parser;
 use sha2::{Digest, Sha256};
 
-/// A directory verifier. Searches for sha256*.txt files in directories.
+/// A directory verifier. Searches for shasum*.txt files in directories.
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
     /// Directories with files to be verified
     dir: Vec<std::path::PathBuf>,
+
+    /// Specify sha256-file and disable shasum*.txt
+    #[arg(long)]
+    hash_file: Option<std::path::PathBuf>,
 
     /// Keep paths exactly as is. Do not try to workaround unix, dos mismatches.
     #[arg(long)]
@@ -100,7 +104,7 @@ impl DirVerify {
         &self,
         stats: &mut Statistics,
         dir: &std::path::PathBuf,
-        list: std::path::PathBuf,
+        list: &std::path::PathBuf,
     ) {
         let file;
         match File::open(&list) {
@@ -138,12 +142,18 @@ impl DirVerify {
         &self,
         stats: &mut Statistics,
         dir: &std::path::PathBuf,
-        sha_files: Vec<String>,
+        sha_files: &Option<Vec<String>>,
+        sha_file: &Option<std::path::PathBuf>,
     ) {
-        for sha_file in sha_files {
-            let mut sha_file_pb = dir.clone();
-            sha_file_pb.push(sha_file);
-            self.verify_list(stats, dir, sha_file_pb);
+        if let Some(files) = sha_files {
+            for file in files {
+                let mut sha_file_pb = dir.clone();
+                sha_file_pb.push(file);
+                self.verify_list(stats, dir, &sha_file_pb);
+            }
+        }
+        if let Some(file) = sha_file {
+            self.verify_list(stats, dir, &file);
         }
     }
 
@@ -276,7 +286,7 @@ fn sha_file_multithread(stats: &mut Statistics, file: &mut File) -> Result<Strin
     }
 }
 
-fn inspect_dir(dir: &std::path::PathBuf) -> Result<Vec<String>, String> {
+fn inspect_dir(dir: &std::path::PathBuf, detect_sha_files: bool) -> Result<Vec<String>, String> {
     if !dir.is_dir() {
         return Err(format!("Not a directory {}", dir.display()));
     }
@@ -287,6 +297,9 @@ fn inspect_dir(dir: &std::path::PathBuf) -> Result<Vec<String>, String> {
         Err(e) => {
             return Err(format!("{}: {}", dir.display(), e));
         }
+    }
+    if !detect_sha_files {
+        return Ok(Vec::new());
     }
     let mut names: Vec<String> = Vec::new();
     for entry in read_dir {
@@ -335,13 +348,19 @@ fn main() -> ExitCode {
 
     let mut sha_files: Vec<(std::path::PathBuf, Vec<String>)> = Vec::new();
     for dir in args.dir {
-        match inspect_dir(&dir) {
+        match inspect_dir(&dir, args.hash_file.is_none()) {
             Ok(names) => {
-                if names.len() == 0 {
-                    eprintln!("Error: no shasum.*.txt files in {}", dir.display());
-                    return ExitCode::from(1);
+                if args.hash_file.is_none() {
+                    if names.len() == 0 {
+                        eprintln!("Error: no shasum.*.txt files in {}", dir.display());
+                        return ExitCode::from(1);
+                    }
+                    sha_files.push((dir, names));
+                } else {
+                    //Names doesn't matter at all in this codepath...
+                    //TODO: Make Option, return None, for clarity
+                    sha_files.push((dir, names));
                 }
-                sha_files.push((dir, names));
             }
             Err(err) => {
                 eprintln!("Error: {}", err);
@@ -355,18 +374,30 @@ fn main() -> ExitCode {
         threaded_sha_reader: !args.no_threaded_sha,
     };
 
-    let mut stats = Statistics::new();
-
-    let start = Instant::now();
-
-    for (dir, names) in sha_files {
-        if args.verbose {
+    if args.verbose {
+        for (dir, names) in sha_files.clone() {
             for name in names.clone() {
                 println!("Found files: {} - {}", dir.display(), name);
             }
         }
-        dirverify.verify_all_lists(&mut stats, &dir, names);
+        if let Some(ref hash_file) = args.hash_file {
+            println!("Utilizing specified shasum file: {}", hash_file.display());
+        }
     }
+
+    let mut stats = Statistics::new();
+    let start = Instant::now();
+
+    // ------ run the verifier ------
+    let hash_file = args.hash_file;
+    for (dir, names) in &sha_files {
+        let hash_names = match hash_file {
+            Some(_) => None,
+            None => Some(names.clone()),
+        };
+        dirverify.verify_all_lists(&mut stats, &dir, &hash_names, &hash_file);
+    }
+    // ------
 
     if !args.no_summary {
         let seconds = start.elapsed().as_secs();
