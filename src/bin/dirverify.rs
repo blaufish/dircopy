@@ -40,9 +40,9 @@ struct Args {
     #[arg(long)]
     no_threaded_sha: bool,
 
-    /// Experimental flag for used with prototyping
+    /// Do not check multiple directories at the same time
     #[arg(long)]
-    experimental_parallell: bool,
+    no_parallell: bool,
 
     /// Size of queue between reader and hasher thread. Tuning parameter.
     #[arg(long, default_value_t = 2)]
@@ -414,6 +414,62 @@ fn bandwidth(read_bytes: usize, seconds: u64) -> String {
     return format!("{:.3} {}/s", rb, suff);
 }
 
+fn run_parallell(
+    dirverify: DirVerify,
+    hash_file: Option<std::path::PathBuf>,
+    sha_files: Vec<(std::path::PathBuf, Vec<String>)>,
+) -> Statistics {
+    let mut stats = Statistics::new();
+    let mut threads = Vec::new();
+    for (dir, names) in &sha_files {
+        let hash_file = hash_file.clone();
+        let dir_thread = dir.clone();
+        let names_thread = names.clone();
+        let dirverify_thread = dirverify.clone();
+        let thread = thread::spawn(move || -> Statistics {
+            let mut thread_stats = Statistics::new();
+            let hash_names = match hash_file {
+                Some(_) => None,
+                None => Some(names_thread.clone()),
+            };
+            dirverify_thread.verify_all_lists(
+                &mut thread_stats,
+                &dir_thread,
+                &hash_names,
+                &hash_file,
+            );
+            thread_stats
+        });
+        threads.push(thread);
+    }
+    for thread in threads {
+        match thread.join() {
+            Ok(x) => stats.add(&x),
+            Err(err) => {
+                stats.errors += 1;
+                eprintln!("{}", format!("Join error: {:?}", err));
+            }
+        }
+    }
+    stats
+}
+
+fn run_sequential(
+    dirverify: DirVerify,
+    hash_file: Option<std::path::PathBuf>,
+    sha_files: Vec<(std::path::PathBuf, Vec<String>)>,
+) -> Statistics {
+    let mut stats = Statistics::new();
+    for (dir, names) in &sha_files {
+        let hash_names = match hash_file {
+            Some(_) => None,
+            None => Some(names.clone()),
+        };
+        dirverify.verify_all_lists(&mut stats, &dir, &hash_names, &hash_file);
+    }
+    stats
+}
+
 fn main() -> ExitCode {
     let args = Args::parse();
 
@@ -463,51 +519,14 @@ fn main() -> ExitCode {
         }
     }
 
-    let mut stats = Statistics::new();
+    let stats;
     let start = Instant::now();
 
     // ------ run the verifier ------
-    if args.experimental_parallell {
-        let mut threads = Vec::new();
-        for (dir, names) in &sha_files {
-            let hash_file = args.hash_file.clone();
-            let dir_thread = dir.clone();
-            let names_thread = names.clone();
-            let dirverify_thread = dirverify.clone();
-            let thread = thread::spawn(move || -> Statistics {
-                let mut thread_stats = Statistics::new();
-                let hash_names = match hash_file {
-                    Some(_) => None,
-                    None => Some(names_thread.clone()),
-                };
-                dirverify_thread.verify_all_lists(
-                    &mut thread_stats,
-                    &dir_thread,
-                    &hash_names,
-                    &hash_file,
-                );
-                thread_stats
-            });
-            threads.push(thread);
-        }
-        for thread in threads {
-            match thread.join() {
-                Ok(x) => stats.add(&x),
-                Err(err) => {
-                    stats.errors += 1;
-                    eprintln!("{}", format!("Join error: {:?}", err));
-                }
-            }
-        }
+    if args.no_parallell {
+        stats = run_sequential(dirverify, args.hash_file, sha_files);
     } else {
-        let hash_file = args.hash_file;
-        for (dir, names) in &sha_files {
-            let hash_names = match hash_file {
-                Some(_) => None,
-                None => Some(names.clone()),
-            };
-            dirverify.verify_all_lists(&mut stats, &dir, &hash_names, &hash_file);
-        }
+        stats = run_parallell(dirverify, args.hash_file, sha_files);
     }
     // ------
 

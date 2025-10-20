@@ -15,7 +15,6 @@ RUN \
 
 
 COPY \
- build-test.sh \
  Cargo.lock \
  Cargo.toml \
  /build/
@@ -32,6 +31,10 @@ COPY src/bin/*.rs /build/src/bin/
 
 RUN cd /build/ && cargo build --release
 RUN cd /build/ && cargo build --release --target x86_64-pc-windows-gnu
+
+COPY \
+ build-test.sh \
+ /build/
 
 RUN cd /build && \
  ./build-test.sh && \
