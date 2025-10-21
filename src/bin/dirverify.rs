@@ -28,6 +28,10 @@ struct Args {
     #[arg(long)]
     hash_file: Option<std::path::PathBuf>,
 
+    /// Inhibit all stdout print outs
+    #[arg(long)]
+    silent: bool,
+
     /// Keep paths exactly as is. Do not try to workaround unix, dos mismatches.
     #[arg(long)]
     no_convert_paths: bool,
@@ -92,8 +96,11 @@ impl Statistics {
 
 #[derive(Clone)]
 struct DirVerify {
+    // bool flags
     convert_paths: bool,
     threaded_sha_reader: bool,
+    silent: bool,
+    // tuning parameters
     block_size: usize,
     queue_size: usize,
 }
@@ -203,15 +210,21 @@ impl DirVerify {
         match self.sha_file(stats, &mut file) {
             Ok(strdigest) => {
                 if hash == strdigest {
-                    println!("{}: OK", file_path.display());
+                    if !self.silent {
+                        println!("{}: OK", file_path.display());
+                    }
                     stats.matches += 1;
                 } else {
-                    println!("{}: FAILED (mismatch)", file_path.display());
+                    if !self.silent {
+                        println!("{}: FAILED (mismatch)", file_path.display());
+                    }
                     stats.mismatches += 1;
                 }
             }
             Err(err) => {
-                println!("{}: FAILED (error: {})", file_path.display(), err);
+                if !self.silent {
+                    println!("{}: FAILED (error: {})", file_path.display(), err);
+                }
                 stats.errors += 1;
             }
         }
@@ -470,11 +483,27 @@ fn run_sequential(
     stats
 }
 
+fn print_summary(stats: &Statistics, seconds: u64) {
+    println!("Summary:");
+    println!("* Execution time: {}s", seconds);
+    println!("* Read (files): {}", stats.read_files);
+    println!("* Read (bytes): {}", stats.read_bytes);
+    println!("* Bandwidth: {}", bandwidth(stats.read_bytes, seconds));
+    println!("* Files matching: {}", stats.matches);
+    println!("* Files mismatching: {}", stats.mismatches);
+    println!("* Errors: {}", stats.errors);
+}
+
 fn main() -> ExitCode {
     let args = Args::parse();
 
     if args.dir.len() == 0 {
         eprintln!("Error: No directory specified");
+        return ExitCode::from(1);
+    }
+
+    if args.silent && args.verbose {
+        eprintln!("Error: cannot be both silent and verbose");
         return ExitCode::from(1);
     }
 
@@ -502,8 +531,11 @@ fn main() -> ExitCode {
     }
 
     let dirverify = DirVerify {
+        // flags
         convert_paths: !args.no_convert_paths,
         threaded_sha_reader: !args.no_threaded_sha,
+        silent: args.silent,
+        // tuning parameters
         block_size: s2i(args.block_size),
         queue_size: args.queue_size,
     };
@@ -530,16 +562,9 @@ fn main() -> ExitCode {
     }
     // ------
 
-    if !args.no_summary {
-        let seconds = start.elapsed().as_secs();
-        println!("Summary:");
-        println!("* Execution time: {}s", seconds);
-        println!("* Read (files): {}", stats.read_files);
-        println!("* Read (bytes): {}", stats.read_bytes);
-        println!("* Bandwidth: {}", bandwidth(stats.read_bytes, seconds));
-        println!("* Files matching: {}", stats.matches);
-        println!("* Files mismatching: {}", stats.mismatches);
-        println!("* Errors: {}", stats.errors);
+    let seconds = start.elapsed().as_secs();
+    if !args.no_summary && !args.silent {
+        print_summary(&stats, seconds);
     }
     if stats.errors != 0 {
         return ExitCode::from(1);
