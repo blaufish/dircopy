@@ -23,7 +23,7 @@ struct Args {
     /// Directories with files to be verified
     dir: Vec<std::path::PathBuf>,
 
-    /// Specify sha256-file and disable shasum*.txt
+    /// Specify sha256-file, and disable automatic search for shasum*.txt files.
     #[arg(long)]
     hash_file: Option<std::path::PathBuf>,
 

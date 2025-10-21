@@ -61,13 +61,13 @@ Summary:
 * Files matching: 399
 * Files mismatching: 5
 * Errors: 48
-``` 
+```
 
 `--silent` inhibit all print outs except error (`stderr`) messages.
 
 `--verbose` enables additional messages, such as printing out which
   `shasum*.txt` files are detected and used.
- 
+
 Impossible combinations will result in error.
   You cannot be both `--verbose` and `--silent`.
 
@@ -81,7 +81,7 @@ Default behaivor is to use threading where possible to increase performance.
 
 `--no-threaded-sha` will inhibit having one reader-thread and one
   hasher-thread, forcing sequential execution.
-  Appears to be about 10% slower. 
+  Appears to be about 10% slower.
 
 ## Tuning parameters
 
