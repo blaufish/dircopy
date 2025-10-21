@@ -49,3 +49,21 @@ target/release/dirverify --verbose --no-parallell "$DIR/dst"
 target/release/dirverify --verbose --no-parallell --hash-file "$SHASUM" "$DIR/src" "$DIR/dst"
 target/release/dirverify --verbose --no-threaded-sha "$DIR/dst"
 target/release/dirverify --verbose --no-threaded-sha --hash-file "$SHASUM" "$DIR/src" "$DIR/dst"
+target/release/dirverify --silent --hash-file "$SHASUM" "$DIR/src" "$DIR/dst"
+# Verify --silent silences output
+target/release/dirverify --silent --hash-file "$SHASUM" "$DIR/src" "$DIR/dst" | IFS= read -r -n 1 firstbyte && exit 1
+
+# Verify failure upon missing file
+rm -- "$DIR/dst/subdir_a/subdir_b/1026"
+if target/release/dirverify --silent "$DIR/dst"
+then
+	exit 1
+fi
+# Verify failure upon mismatching file
+dd if=/dev/urandom of="$DIR/dst/subdir_a/subdir_b/1026" count=1 bs="$size"
+if target/release/dirverify "$DIR/dst"
+then
+	exit 1
+fi
+
+echo "Tests completed successfully!"
