@@ -1,21 +1,20 @@
 use std::fs;
 use std::fs::File;
-//use std::fs::OpenOptions;
-//use std::io;
 use std::io::BufRead;
 use std::io::BufReader;
-//use std::io::IsTerminal;
 use std::io::Read;
-//use std::io::Write;
 use std::path::MAIN_SEPARATOR_STR;
 use std::process::ExitCode;
 use std::sync::mpsc::sync_channel;
 use std::thread;
 use std::time::Instant;
 
-//use chrono::prelude::*;
 use clap::Parser;
 use sha2::{Digest, Sha256};
+
+mod texttools;
+use texttools::bandwidth;
+use texttools::s2i;
 
 /// A directory verifier. Searches for shasum*.txt files in directories.
 #[derive(Parser, Debug)]
@@ -379,52 +378,6 @@ fn inspect_dir(dir: &std::path::PathBuf, detect_sha_files: bool) -> Result<Vec<S
         names.push(name);
     }
     Ok(names)
-}
-
-// Convert "128K" into 128*1024, and such
-fn s2i(string: String) -> usize {
-    let mut prefix: usize = 0;
-    let mut exponent: usize = 1;
-    for c in string.chars() {
-        match c {
-            'K' => exponent = 1024,
-            'M' => exponent = 1024 * 1024,
-            'G' => exponent = 1024 * 1024 * 1024,
-            '0' => prefix = prefix * 10,
-            '1' => prefix = prefix * 10 + 1,
-            '2' => prefix = prefix * 10 + 2,
-            '3' => prefix = prefix * 10 + 3,
-            '4' => prefix = prefix * 10 + 4,
-            '5' => prefix = prefix * 10 + 5,
-            '6' => prefix = prefix * 10 + 6,
-            '7' => prefix = prefix * 10 + 7,
-            '8' => prefix = prefix * 10 + 8,
-            '9' => prefix = prefix * 10 + 9,
-            _ => eprintln!("Unable to parse: {}", string),
-        }
-    }
-    let result = prefix * exponent;
-    if result < 1 {
-        eprintln!("Unable to parse: {}", string)
-    }
-    return result;
-}
-
-fn bandwidth(read_bytes: usize, seconds: u64) -> String {
-    if seconds == 0 {
-        return String::from("NaN");
-    }
-    let mut rb = (read_bytes as f64) / (seconds as f64);
-    let sufixes: Vec<&str> = vec!["B", "KB", "MB", "GB", "TB", "PB"];
-    let mut suff = "";
-    for s in sufixes {
-        suff = s;
-        if rb < 1000.0 {
-            break;
-        }
-        rb = rb / 1000.0;
-    }
-    return format!("{:.3} {}/s", rb, suff);
 }
 
 fn run_parallell(

@@ -13,6 +13,10 @@ use chrono::prelude::*;
 use clap::Parser;
 use sha2::{Digest, Sha256};
 
+mod texttools;
+use texttools::bandwidth;
+use texttools::s2i;
+
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -87,9 +91,7 @@ impl Configuration {
             }
         }
         let seconds = self.start_of_copying.elapsed().as_secs();
-        if let Ok(bw) = bandwidth(self.read_bytes, seconds) {
-            result = result + "| " + &bw;
-        }
+        result = result + "| " + &bandwidth(self.read_bytes, seconds);
 
         let tmp: String = format!(" | {} files      ", self.read_files);
         result = result + &tmp;
@@ -454,51 +456,6 @@ fn copy_dir(
     Ok(())
 }
 
-fn s2i(string: String) -> usize {
-    let mut prefix: usize = 0;
-    let mut exponent: usize = 1;
-    for c in string.chars() {
-        match c {
-            'K' => exponent = 1024,
-            'M' => exponent = 1024 * 1024,
-            'G' => exponent = 1024 * 1024 * 1024,
-            '0' => prefix = prefix * 10,
-            '1' => prefix = prefix * 10 + 1,
-            '2' => prefix = prefix * 10 + 2,
-            '3' => prefix = prefix * 10 + 3,
-            '4' => prefix = prefix * 10 + 4,
-            '5' => prefix = prefix * 10 + 5,
-            '6' => prefix = prefix * 10 + 6,
-            '7' => prefix = prefix * 10 + 7,
-            '8' => prefix = prefix * 10 + 8,
-            '9' => prefix = prefix * 10 + 9,
-            _ => eprintln!("Unable to parse: {}", string),
-        }
-    }
-    let result = prefix * exponent;
-    if result < 1 {
-        eprintln!("Unable to parse: {}", string)
-    }
-    return result;
-}
-
-fn bandwidth(read_bytes: usize, seconds: u64) -> Result<String, ()> {
-    if seconds == 0 {
-        return Err(());
-    }
-    let mut rb = (read_bytes as f64) / (seconds as f64);
-    let sufixes: Vec<&str> = vec!["B", "KB", "MB", "GB", "TB", "PB"];
-    let mut suff = "";
-    for s in sufixes {
-        suff = s;
-        if rb < 1000.0 {
-            break;
-        }
-        rb = rb / 1000.0;
-    }
-    return Ok(format!("{:.3} {}/s", rb, suff));
-}
-
 fn main() -> std::io::Result<()> {
     let args = Args::parse();
     let queue_size = args.queue_size;
@@ -552,9 +509,7 @@ fn main() -> std::io::Result<()> {
     eprintln!("");
     let seconds = cfg.start_of_copying.elapsed().as_secs();
     println!("Execution time: {}s", seconds);
-    if let Ok(bw) = bandwidth(cfg.read_bytes, seconds) {
-        println!("Average bandwidth: {}", bw);
-    }
+    println!("Average bandwidth: {}", bandwidth(cfg.read_bytes, seconds));
 
     Ok(())
 }
