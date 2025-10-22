@@ -43,7 +43,7 @@ struct Args {
     overwrite_policy: String,
 }
 
-struct Configuration {
+struct DirCopy {
     queue_size: usize,
     block_size: usize,
     read_bytes: usize,
@@ -54,7 +54,7 @@ struct Configuration {
     overwrite_policy: OverwritePolicy,
 }
 
-impl Configuration {
+impl DirCopy {
     fn emit_debug_message(&mut self) -> bool {
         if !self.debug {
             return false;
@@ -160,12 +160,12 @@ impl OverwritePolicyTrait for OverwritePolicy {
 }
 
 fn copy(
-    cfg: &mut Configuration,
+    dircopy: &mut DirCopy,
     input: std::path::PathBuf,
     output: std::path::PathBuf,
 ) -> Result<String, io::Error> {
-    let block_size: usize = cfg.block_size;
-    let queue_size: usize = cfg.queue_size;
+    let block_size: usize = dircopy.block_size;
+    let queue_size: usize = dircopy.queue_size;
 
     let mut fi = File::open(input)?;
     let mut fo = File::create(output)?;
@@ -319,10 +319,10 @@ fn copy(
                 break;
             }
             Ok(StatusMessage::StatusIncBlock(u)) => {
-                cfg.read_bytes = cfg.read_bytes + u;
+                dircopy.read_bytes = dircopy.read_bytes + u;
 
-                if cfg.emit_debug_message() {
-                    let debug_msg = cfg.debug_message();
+                if dircopy.emit_debug_message() {
+                    let debug_msg = dircopy.debug_message();
                     let _ = stderr.write(debug_msg.as_bytes());
                     let _ = stderr.flush();
                 }
@@ -371,13 +371,13 @@ fn copy(
         return Err(std::io::Error::from(std::io::ErrorKind::Interrupted));
     }
 
-    cfg.read_files = cfg.read_files + 1;
+    dircopy.read_files = dircopy.read_files + 1;
 
     Ok(result)
 }
 
 fn copy_directory(
-    cfg: &mut Configuration,
+    dircopy: &mut DirCopy,
     input: std::path::PathBuf,
     output: std::path::PathBuf,
 ) -> io::Result<()> {
@@ -403,10 +403,10 @@ fn copy_directory(
     }
     println!("Writing SHA256 sums to: {}", path_shasum.display());
 
-    let result = copy_dir(cfg, &mut shasum_file, input, rel, output);
+    let result = copy_dir(dircopy, &mut shasum_file, input, rel, output);
 
-    if cfg.debug {
-        let debug_msg = cfg.debug_message();
+    if dircopy.debug {
+        let debug_msg = dircopy.debug_message();
         let mut stderr = io::stderr();
         let _ = stderr.write(debug_msg.as_bytes());
     }
@@ -415,7 +415,7 @@ fn copy_directory(
 }
 
 fn copy_dir(
-    cfg: &mut Configuration,
+    dircopy: &mut DirCopy,
     shasum_file: &mut std::fs::File,
     input: std::path::PathBuf,
     rel: std::path::PathBuf,
@@ -437,19 +437,19 @@ fn copy_dir(
             if !output_path.exists() {
                 fs::create_dir(output_path.clone())?;
             }
-            copy_dir(cfg, shasum_file, path, rel2, output_path)?;
+            copy_dir(dircopy, shasum_file, path, rel2, output_path)?;
         } else if path.is_file() {
             if output_path.exists() {
                 let old_metadata = entry.metadata()?;
                 let new_metadata = fs::metadata(output_path.clone())?;
-                if !cfg
+                if !dircopy
                     .overwrite_policy
                     .do_overwrite(&old_metadata, &new_metadata)
                 {
                     continue;
                 }
             }
-            match copy(cfg, path, output_path) {
+            match copy(dircopy, path, output_path) {
                 Ok(s) => {
                     let string = format!("{}  {}\n", s.to_lowercase(), rel2.display());
                     let _ = shasum_file.write_all(string.as_bytes());
@@ -485,7 +485,7 @@ fn main() -> std::io::Result<()> {
         }
     }
 
-    let mut cfg = Configuration {
+    let mut dircopy = DirCopy {
         queue_size: queue_size,
         block_size: block_size,
         read_bytes: 0,
@@ -510,13 +510,13 @@ fn main() -> std::io::Result<()> {
     println!("Overwite policy: {}", args.overwrite_policy);
 
     let stderr = io::stderr();
-    cfg.debug = stderr.is_terminal();
+    dircopy.debug = stderr.is_terminal();
 
-    let _ = copy_directory(&mut cfg, args.input, args.output)?;
+    let _ = copy_directory(&mut dircopy, args.input, args.output)?;
     eprintln!("");
-    let seconds = cfg.start_of_copying.elapsed().as_secs();
+    let seconds = dircopy.start_of_copying.elapsed().as_secs();
     println!("Execution time: {}s", seconds);
-    println!("Average bandwidth: {}", bandwidth(cfg.read_bytes, seconds));
+    println!("Average bandwidth: {}", bandwidth(dircopy.read_bytes, seconds));
 
     Ok(())
 }
