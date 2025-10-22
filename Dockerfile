@@ -28,6 +28,7 @@ RUN \
  rm -Rvf -- src
 
 COPY src/bin/*.rs /build/src/bin/
+COPY src/bin/texttools/*.rs /build/src/bin/texttools/
 
 RUN cd /build/ && cargo build --release
 RUN cd /build/ && cargo build --release --target x86_64-pc-windows-gnu
