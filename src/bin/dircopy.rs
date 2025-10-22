@@ -17,21 +17,28 @@ mod texttools;
 use texttools::bandwidth;
 use texttools::s2i;
 
+/// A directory copy tool, that creates shasum*.txt (SHA256) files on the fly.
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
+    /// Source directory to copy files from
     #[arg(short, long)]
     input: std::path::PathBuf,
 
+    /// Destination directory to copy files to
     #[arg(short, long)]
     output: std::path::PathBuf,
 
+    /// Size of queues between threads (reader, hasher, writer). Tuning parameter.
     #[arg(long, default_value_t = 10)]
     queue_size: usize,
 
+    /// Size of blocks between threads (reader, hasher, writer). Tuning parameter.
     #[arg(long, default_value = "128K")]
     block_size: String,
 
+    /// Advanced/Exploratory feature that controls if the tool is allowed to overwrite existing
+    /// files.
     #[arg(long, default_value = "default")]
     overwrite_policy: String,
 }

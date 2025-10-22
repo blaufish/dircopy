@@ -6,16 +6,25 @@
 `./dircopy/target/release/dircopy -h`
 
 ``` plain
+A directory copy tool, that creates shasum*.txt (SHA256) files on the fly
+
 Usage: dircopy [OPTIONS] --input <INPUT> --output <OUTPUT>
 
 Options:
   -i, --input <INPUT>
+          Source directory to copy files from
   -o, --output <OUTPUT>
-      --queue-size <QUEUE_SIZE>              [default: 10]
-      --block-size <BLOCK_SIZE>              [default: 128K]
-      --overwrite-policy <OVERWRITE_POLICY>  [default: default]
-  -h, --help                                 Print help
-  -V, --version                              Print version
+          Destination directory to copy files to
+      --queue-size <QUEUE_SIZE>
+          Size of queues between threads (reader, hasher, writer). Tuning parameter [default: 10]
+      --block-size <BLOCK_SIZE>
+          Size of blocks between threads (reader, hasher, writer). Tuning parameter [default: 128K]
+      --overwrite-policy <OVERWRITE_POLICY>
+          Advanced/Exploratory feature that controls if the tool is allowed to overwrite existing files [default: default]
+  -h, --help
+          Print help
+  -V, --version
+          Print version
 ```
 
 ## Performance Tuning
